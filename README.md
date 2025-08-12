@@ -66,7 +66,10 @@ i)Hash Function selected - Modulus(value % table_size)
  i)since multiple elements have the same modulus n(where n is the table size)and they perform simultaneous read write functions multiple elements may read /write to a location in array resulting in corruption or overriding of data 
    solutions. any solutions we implement will either need more memory , more compute or will have higher time complexity. Currently were limited to hardware by a RTX 4070 and a RTX 2070 SUPER.
    Ideas- 
-   1)Division of threads into groups that execute on multiple buckets/maybe different hash tables entirely ( the parameters for this division are to be decided)
-   2)atmoicCAS
+   1) Division of threads into groups that execute on multiple buckets/maybe different hash tables entirely ( the parameters for this division are to be decided)
+   2) atmoicCAS
    3) explore cooperative groups 
    4) warp level scheduling
+
+
+   ///working
