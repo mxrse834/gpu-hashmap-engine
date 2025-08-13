@@ -59,18 +59,65 @@ for my main file ( src/hashmap.cu). these 3 requirements are as follows -
 
 Now for actual benchmarking purposes lets start with the simplest approach(the below will be represented in roman numerals starting from the most naive i) to the the most efficient n)-
 
-i)Hash Function selected - Modulus(value % table_size)
-  Hash Table - 1D array
-  Collision Handling -Linear Probing
- Problems faced in this approach 
- i)since multiple elements have the same modulus n(where n is the table size)and they perform simultaneous read write functions multiple elements may read /write to a location in array resulting in corruption or overriding of data 
-   solutions. any solutions we implement will either need more memory , more compute or will have higher time complexity. Currently were limited to hardware by a RTX 4070 and a RTX 2070 SUPER.
-   Ideas- 
-   1) Division of threads into groups that execute on multiple buckets/maybe different hash tables entirely ( the parameters for this division are to be decided)
-   2) atmoicCAS
-   3) explore cooperative groups 
-   4) warp level scheduling
+Version1 begins:
+Hash Table Design 
 
-problems  with the current version -
-1)use cudaMemset in place of using h_keys[tid] = -1, it allows us to use dedicated DMA componensts in place of SM's
-DMA's are dedicted copy/set units 
+  Hash Function:
+
+    Simple modulus: value % table_size
+
+  Hash Table Structure:
+
+    1D array
+
+  Collision Handling:
+
+    Linear probing
+
+Problems Faced in this Approach
+
+    Since multiple elements can have the same modulus (where n is the table size), simultaneous read/write operations from different threads may cause race conditions. This can result in overwriting or corruption of data in the hash table.
+
+    Any solution to handle concurrent insertions reliably will likely involve trade-offs in either additional memory usage, increased compute, or higher time complexity.
+
+    Our current hardware constraints are a mix of RTX 4070 and RTX 2070 SUPER GPUs, so solutions must respect the capabilities and limits of these GPUs.
+
+Potential Ideas to Address These Issues
+
+    Divide threads into groups that work on different hash buckets or even separate hash tables entirely. Parameters like group size or division strategy would need to be tuned.
+
+    Use atomicCAS (compare-and-swap) operations to guarantee exclusive access to hash table slots.
+
+    Explore cooperative groups, a CUDA programming model that allows fine-grained synchronization and cooperation inside thread blocks and across warps.
+
+    Employ warp-level scheduling and communication to improve efficiency and reduce contention.
+
+Known Problems in the Current Implementation
+
+    1) Currently, you are initializing h_keys[tid] = -1 inside the kernel, which is inefficient.
+    Improvement: Use cudaMemset to initialize the entire table to -1 before launching kernels.
+    This leverages the GPU's DMA engines, which are dedicated hardware components optimized for fast bulk memory operations, offloading this work from the SMs (Streaming Multiprocessors).
+
+    2) The use of atomicCAS can lead to serialization and slowdowns when many threads contend for the same hash bucket during collisions(limitations due to SIMT).
+
+    3) Linear probing suffers performance degradation when there are many collisions because threads will have to probe many slots sequentially, increasing latency.
+
+    4) The modulo operator (%) as a hash function tends to create many collisions, particularly when the data has non-uniform distributions or patterns that cluster in certain buckets.
+
+
+>now in the version 2 - lest work on the the above problem 2
+and addition of a effcient lookup kernel
+
+
+
+///edit this out -
+///1) were considering 2 ways to do this _shfl_sync and _ballot_sync
+weve studied ballot_sync until now - learning 
+>) limitation - even tho were able to save unnecessarily wasted compute power using this method were not able tyo redirect the threads that are freed in a warp to do other work .
+>) how to perform it : 
+"unsigned int active = __ballot_sync(0xffffffff, stillSearching);
+if (!(active & (1 << lane_id))) break;
+"
+next topic :
+shl_sync
+also check if therea are any other methods and then write a lookup proegram ( thats phase 2)
