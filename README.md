@@ -71,5 +71,6 @@ i)Hash Function selected - Modulus(value % table_size)
    3) explore cooperative groups 
    4) warp level scheduling
 
-
-   ///working
+problems  with the current version -
+1)use cudaMemset in place of using h_keys[tid] = -1, it allows us to use dedicated DMA componensts in place of SM's
+DMA's are dedicted copy/set units 

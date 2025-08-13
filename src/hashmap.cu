@@ -19,7 +19,9 @@ __global__ void insert_kernel(int n, int *h_keys, int *h_values) {
     int base=h_values[tid]%n;
     do
     { if(i<n)
-      {ptv=atomicCAS(&h_keys[(base+i)%n],-1,h_values[tid]); //will lock the the position address given 
+      {
+        int idx = (base+i)%n;
+        ptv=atomicCAS(&h_keys[idx],-1,h_values[tid]); //will lock the the position address given 
         //and allow only one thread to execute at a a time to prevent any race condition
         //ptv launches a per thread variable and in atomicCAS it will store the old value in index[tid] that was replaced 
       i++;}
@@ -51,4 +53,9 @@ int main() {
     /*int h_values[] = {10, 20, 30, 40, 50, 60, 70, 80};  // sample values*/
     /*int n=8;*/
     return 0;
+
+    int *g_a;
+    size_t size=n*sizeof(int);
+    cudaMalloc(&g_a,size);
+    cudaMemset(g_a,0xFF,size);
 }
