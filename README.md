@@ -106,7 +106,19 @@ Known Problems in the Current Implementation
 
 
 >now in the version 2 - lest work on the the above problem 2
-and addition of a effcient lookup kernel
+
+changes made - 
+1) for loop used in place of do while to instantly exit the program when ptc ==-1 also code size is reduced
+2) lookup kernel written based on same insertion logic 
+3) addition of main
+4) cudaMemset is being used inplace of in kernel initialization and wasting SM's utilization were using DMA's instead
+5) 
+
+
+
+
+
+
 
 
 
@@ -115,9 +127,32 @@ and addition of a effcient lookup kernel
 weve studied ballot_sync until now - learning 
 >) limitation - even tho were able to save unnecessarily wasted compute power using this method were not able tyo redirect the threads that are freed in a warp to do other work .
 >) how to perform it : 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 "unsigned int active = __ballot_sync(0xffffffff, stillSearching);
 if (!(active & (1 << lane_id))) break;
 "
 next topic :
 shl_sync
 also check if therea are any other methods and then write a lookup proegram ( thats phase 2)
+and _fss
