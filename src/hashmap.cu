@@ -1,6 +1,5 @@
 #include<vector>
 #include <iostream>
-#include <cuda.h>
 #include <cuda_runtime.h>
 #include <stdexcept>
 #define TPB 1024
@@ -44,11 +43,11 @@ __global__ void insert_kernel(int n, int *h_keys, int *h_values) {
 }
 
 // Kernel: Lookup Key in Hash Table
-__global__ void lookup_kernel(int n,int* vals,int *locn,int* h_keys) 
+__global__ void lookup_kernel(int n,int l,int* vals,int *locn,int* h_keys) 
 {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     // so the lookup kenerl with take some value and use the hashing function (%) on it and return a a place value where the lement may be stored or maybe have to linearly probe further
-    if(tid<n) 
+    if(tid<l) 
     {int base = vals[tid]%n; // thi will give the ele location without collision
      for(int i=0;i<n;i++)
      {if(vals[tid]==h_keys[(base + i)%n])
@@ -69,12 +68,12 @@ __global__ void delete_kernel(int *keys, int *hash_table_keys, int *hash_table_v
 // Main Testing Function
 int main() {
     std::cout << "GPU HashMap Engine - CUDA Kernel Skeleton Initialized" << std::endl;
-    /*int h_values[] = {10, 20, 30, 40, 50, 60, 70, 80};  // sample values*/
+    int h[] = {10, 20, 30, 40, 50, 60, 70, 80};  // sample values*/
     int n=8;
     string x;
-    return 0;
     vector<int> temp;
     cout<<"Type in the elements u want to search for, when ur done type in 'eol' standing for end of list";
+    int i=0;
     while(cin>>x && x!="eol")
     {try
     {
@@ -85,13 +84,42 @@ int main() {
     {
         cerr << "Error is:" << e.what() << '\n';
     }
-    
-    temp.push_back(x);}
-    int *g_a,*locn;
+    i++;
+    }
+    int *g_k,*g_v,*locn,*g_temp;
+    int *output=new int[i];
+    int *h_temp=new int[i];
     size_t size=n*sizeof(int);
-    cudaMalloc(&g_a,size);
-    cudaMemset(g_a,0xFF,size);
-    cudaMalloc(&locn,/*take based on user input*/);
-    cudaMemset(locn,0xFF,/*to be specidfied by user based on numebr of location they want to check*/);
+    size_t size1=i*sizeof(int);
+    cudaMalloc(&g_k,size);
+    cudaMalloc(&g_v,size);
+    cudaMemset(g_k,0xFF,size);
+    cudaMalloc(&locn,size1);
+    cudaMemset(locn,0xFF,size1);
+    cudaMalloc(&g_temp,size1);
+    cudaMemcpy(g_v,h,size,cudaMemcpyHostToDevice);
+    cudaMemcpy(g_temp,temp.data(),size1,cudaMemcpyHostToDevice);
+    //cudaMemset(locn,0xFF,size1);
+    dim3 block(TPB);
+    dim3 grid((TPB+n-1)/TPB);
+    dim3 grid1((TPB+i-1)/TPB);
+    insert_kernel<<<grid,block>>>(n,g_k,g_v);
+    cudaDeviceSynchronize();
+    lookup_kernel<<<grid1,block>>>(n,i,g_temp,locn,g_k);
+    cudaDeviceSynchronize();
+    cudaMemcpy(output,locn,size1,cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_temp,g_temp,size1,cudaMemcpyDeviceToHost);
+    for(int l =0;l<i;l++)
+    {
+    if(output[l] == -1)
+    cout<<"The element " << h_temp[l]<< " is not a part of the hahs table";
+    else
+    cout<<h_temp[l]<<" was found at "<<output[l];
+    }
+    cudaFree(g_k);
+    cudaFree(g_v);
+    cudaFree(locn);
+    cudaFree(g_temp);
+    delete[] output;
     return 0;
 }
