@@ -1,158 +1,251 @@
 # GPU-Accelerated High-Performance Key-Value Store (GPU HashMap Engine)
 
+## Project Overview
+
+This is my first CUDA C++ application project and also my first project on GitHub! 🚀 
+
+This project aims to achieve a highly efficient hashing engine using GPU parallelization. The system is designed as a core GPU data-structure engine for real-time analytics, caching layers, and infrastructure-scale workloads.
+
 ## Problem Statement
-Building a high-performance GPU-accelerated in-memory Key-Value Store using CUDA C++.  
-The system will support:
-- Batch Insertions & Lookups of key-value pairs in parallel.
-- Aggregation Queries (SUM, MIN, MAX) across key sets.
-- Prefix Sum Range Queries.
-- Divergence-efficient filtering & Stream Compaction.
-- Warp & Shared Memory optimizations for high throughput.
 
-This will serve as a core GPU data-structure engine, designed for real-time analytics, caching layers, and infra-scale workloads.
+Building a high-performance GPU-accelerated in-memory Key-Value Store using CUDA C++ that supports:
+- **Batch Insertions & Lookups** of key-value pairs in parallel
+- **Aggregation Queries** (SUM, MIN, MAX) across key sets
+- **Prefix Sum Range Queries**
+- **Divergence-efficient filtering & Stream Compaction**
+- **Warp & Shared Memory optimizations** for high throughput
 
-## Project Goals
-1. Implement GPU-optimized batch insert and lookup operations.
-2. Design collision handling using shared memory and warp-level strategies.
-3. Support aggregation queries using warp-level reductions.
-4. Efficiently handle divergent queries using stream compaction.
-5. Structure code in a clean, modular, GitHub-ready format.
+## Repository Structure
+
+```
+src/           # Core CUDA code (kernels, device functions)
+data/          # Example input datasets  
+benchmarks/    # Nsight Compute results, profiling logs
+docs/          # Design documents, architecture decisions
+README.md      # Project overview (this file)
+```
+
+## Build Instructions
+
+```bash
+nvcc hashmap.cu -o hm
+./hm
+```
+
+
+## Hardware Constraints
+
+Current development is optimized for:
+- **RTX 4070** and **RTX 2070 SUPER** GPUs
+- Solutions must respect the capabilities and limits of these GPUs
+
+
+
+## Implementation Journey
+
+To maximize efficiency, I'm focusing on optimizing **4 core metrics**:
+
+1. **Hashing Function** - Generate IDs as unique as possible with minimal collisions
+2. **Index Calculation/Hash Table** - Efficient parallel data structure for storage and retrieval
+3. **Collision Handling** - System to resolve hash conflicts efficiently
+4. **Dynamic Resizing** - Automatically scale storage as key-value pairs increase
+
+### Evolution Through Versions
+
+The project follows an iterative approach from naive (Version I) to highly optimized (Version N).
+
+
+## Version 1: Baseline Implementation
+
+### Design Choices
+
+**Hash Function:**
+- Simple modulus: `value % table_size`
+
+**Hash Table Structure:**  
+- 1D array
+
+**Collision Handling:**
+- Linear probing
+
+### Problems Identified
+
+1. **Race Conditions**: Multiple threads accessing same hash buckets simultaneously cause data corruption
+2. **SIMT Limitations**: Atomic operations lead to serialization and performance degradation  
+3. **Poor Hash Distribution**: Modulo operator creates clustering with non-uniform data
+4. **Inefficient Initialization**: Setting `h_keys[tid] = -1` inside kernels wastes SM resources
+
+### Potential Solutions Explored
+
+- **Thread Grouping**: Divide threads into groups working on separate hash buckets
+- **Atomic Operations**: Use `atomicCAS` for exclusive access to hash table slots
+- **Cooperative Groups**: Fine-grained synchronization within thread blocks and warps
+- **Warp-level Communication**: Improve efficiency and reduce contention
 
 ---
 
-## Repo Structure
-src/ # Core CUDA code (kernels, device functions)
-data/ # Example input datasets
-benchmarks/ # Nsight Compute results, profiling logs
-docs/ # Design documents, architecture decisions
-README.md # Project overview
+## Version 2: Complete Working Implementation ✅
 
+### Architecture Overview
 
-## Roadmap
-- Phase 1: Batch Insertions & Lookups (hashmap.cu)
-- Phase 2: Shared Memory & Warp Optimizations
-- Phase 3: Aggregation Queries
-- Phase 4: Stream Compaction & Divergence Handling
-- Phase 5: API Wrapping & GitHub Finalization
+**Core Data Structure:**
+```cpp
+int h[] = {10, 20, 30, 40, 50, 60, 70, 80};  // Hash table values
+int n = 8;                                   // Fixed hash table size
+```
 
+**Memory Layout:**
+- **Hash Keys Array** (`g_k`): Device array storing the actual hash table
+- **Hash Values Array** (`g_v`): Device array with input values to be hashed
+- **Search Array** (`g_temp`): Device array with user input search queries
+- **Location Results** (`locn`): Device array storing found indices
 
+### Key Improvements Implemented
 
-This is my first CUDA C++ application based project and also my first project on git :) this project aims to achieve a highly efficient hashing engine using a GPU. The program structure is as mentioned-
-## Repo Structure
-src/           # Core CUDA code (kernels, device functions)
-data/          # Example input datasets
-benchmarks/    # Nsight Compute results, profiling logs
-docs/          # Design documents, architecture decisions
-README.md      # Project overview
+#### 1. **Optimized Memory Initialization**
+```cpp
+cudaMemset(g_k, 0xFF, size);     // Hash table initialized to -1
+cudaMemset(locn, 0xFF, size1);   // Results initialized to -1 (not found)
+```
+**Advantage**: Leverages GPU's DMA engines instead of wasting SM cycles
 
-let us drive straight into the process-
-At this point i somewhat feel that we need to narrow down on maximizing 3 metrics to make the code as efficient as possible- 
-for my main file ( src/hashmap.cu). these 3 requirements are as follows - 
-1)A hashing function-Hashing function is responsible(performs the work of reducing a large input element into an efficient "hash" ultimately to calculate the index to store this value in , it is a general algorithm that will generate as less collision as possible and be efficiently able to arrange a large dataset into hash table with minimal overlap of elements , hence we have a final aim of lets say "GENERATING IDs AS UNIQUE AS POSSIBLE". this function should be highly efficient and optimized for parallel computation, so our main task is to select a function that is most suitable to our usecase on a GPU
+**Key Features:**
+- **Linear Probing**: `(base + i) % n` for collision resolution
+- **Atomic Operations**: `atomicCAS` prevents race conditions
+- **Early Exit**: Return immediately on successful insertion
+- **Not Found Handling**: Relies on pre-initialized -1 values
+- **Dynamic sizing**: Vector grows as user adds elements
+- **Error handling**: Catches invalid input gracefully
+- **Flexible termination**: "eol" to end input
 
-2)index calculation/hash table - after a efficient hashing function we must be able to index this hash effectively such that it will be easier to pull later on as well as be easier to store . as efficient of a data structure the table has for parallel draw , more efficient our kernel will be as indexing will be made simpler.
 
-3)collision handling - finally the system we use to handle collisions is very important as this will determine how easy it will be to retrive an item later on 
 
-4)dynamic resizing - we dont want to unnecessarily allocate a very big chunk of storage to it , it should dynamically increase as the number of key value pairs increases
+### CUDA Memory Operations Deep Dive
 
+**cudaMemset Analysis:**
+```cpp
+cudaMemset(g_k, 0xFF, size);  // Sets each byte to 0xFF
+```
+- **Byte-wise limitation**: Can only store values 0-255
+- **For -1 initialization**: `0xFF = 11111111` in binary = -1 for signed integers
+- **DMA advantage**: Uses dedicated memory controllers, not SMs
 
-Now for actual benchmarking purposes lets start with the simplest approach(the below will be represented in roman numerals starting from the most naive i) to the the most efficient n)-
 
-Version1 begins:
-Hash Table Design 
+### Debugging Journey
 
-  Hash Function:
+#### Error 1: SIGSEGV (Address Boundary Error)
+**Cause**: 
+int *output;  // Uninitialized pointer
+cudaMemcpy(output, locn, size1, cudaMemcpyDeviceToHost); 
 
-    Simple modulus: value % table_size
+**Solution**: 
+int *output = new int[i];  // Proper allocation
 
-  Hash Table Structure:
 
-    1D array
+#### Error 2: Wrong Memory Transfer Pattern
+**Cause**: Using `&temp` instead of `temp.data()` for vector
+**Solution**: Understanding vector object vs vector data distinction
 
-  Collision Handling:
+### Performance Test Results
 
-    Linear probing
+**Test Input:**
+20, 70, 90, 0
 
-Problems Faced in this Approach
 
-    Since multiple elements can have the same modulus (where n is the table size), simultaneous read/write operations from different threads may cause race conditions. This can result in overwriting or corruption of data in the hash table.
+**Expected Hash Table State After Insertion:**
+Index: 0  1  2  3  4  5  6  7
+Value: 80 - 10 30 20 50 60 70
+       ^              ^     ^
+      (80%8=0)    (20%8=4) (70%8=6→7)
 
-    Any solution to handle concurrent insertions reliably will likely involve trade-offs in either additional memory usage, increased compute, or higher time complexity.
 
-    Our current hardware constraints are a mix of RTX 4070 and RTX 2070 SUPER GPUs, so solutions must respect the capabilities and limits of these GPUs.
+**Actual Output:**
+20 was found at 4
+70 was found at 7  
+The element 90 is not a part of the hash table
+The element 0 is not a part of the hash table
 
-Potential Ideas to Address These Issues
 
-    Divide threads into groups that work on different hash buckets or even separate hash tables entirely. Parameters like group size or division strategy would need to be tuned.
+**Analysis**: 
 
-    Use atomicCAS (compare-and-swap) operations to guarantee exclusive access to hash table slots.
+### Debugging Tools Integration
 
-    Explore cooperative groups, a CUDA programming model that allows fine-grained synchronization and cooperation inside thread blocks and across warps.
+**compute-sanitizer Integration:**
+/opt/cuda/bin/compute-sanitizer ./hm
+========= COMPUTE-SANITIZER
+GPU HashMap Engine - CUDA Kernel Skeleton Initialized
+...
+========= ERROR SUMMARY: 0 errors
 
-    Employ warp-level scheduling and communication to improve efficiency and reduce contention.
 
-Known Problems in the Current Implementation
+**What compute-sanitizer detects:**
+1. **Memory access errors** → Out-of-bounds access
+2. **Race conditions** → Simultaneous memory modifications
+3. **API errors** → CUDA runtime/driver misuse
 
-    1) Currently, you are initializing h_keys[tid] = -1 inside the kernel, which is inefficient.
-    Improvement: Use cudaMemset to initialize the entire table to -1 before launching kernels.
-    This leverages the GPU's DMA engines, which are dedicated hardware components optimized for fast bulk memory operations, offloading this work from the SMs (Streaming Multiprocessors).
+## Current Status: Version 2 Complete 
 
-    2) The use of atomicCAS can lead to serialization and slowdowns when many threads contend for the same hash bucket during collisions(limitations due to SIMT).
-
-    3) Linear probing suffers performance degradation when there are many collisions because threads will have to probe many slots sequentially, increasing latency.
-
-    4) The modulo operator (%) as a hash function tends to create many collisions, particularly when the data has non-uniform distributions or patterns that cluster in certain buckets.
-
-
->now in the version 2 - lest work on the the above problem 2
-
-changes made - 
-1) for loop used in place of do while to instantly exit the program when ptc ==-1 also code size is reduced
-2) lookup kernel written based on same insertion logic 
-3) addition of main
-4) cudaMemset is being used inplace of in kernel initialization and wasting SM's utilization were using DMA's instead
-5) 
-
-
-
-
-
-
-
-
-
-///edit this out -
-///1) were considering 2 ways to do this _shfl_sync and _ballot_sync
-weve studied ballot_sync until now - learning 
->) limitation - even tho were able to save unnecessarily wasted compute power using this method were not able tyo redirect the threads that are freed in a warp to do other work .
->) how to perform it : 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-"unsigned int active = __ballot_sync(0xffffffff, stillSearching);
+### Working Features
+- **Batch Insertion**: Parallel hash table population using linear probing
+- **Collision Resolution**: Atomic `atomicCAS` operations prevent race conditions  
+- **Parallel Lookup**: Multi-threaded search with proper bounds checking
+- **Dynamic Input**: User can search for any number of elements
+- **Memory Efficiency**: DMA-based initialization, proper cleanup
+- **Error Handling**: Robust input validation and memory management
+- **Not Found Detection**: Proper handling of missing elements
+
+### Performance Characteristics
+- **Hash Function**: `value % table_size` (simple but collision-prone)
+- **Collision Resolution**: Linear probing with atomic synchronization
+- **Memory Access**: Coalesced for optimal bandwidth utilization  
+- **Thread Efficiency**: Minimal warp divergence in insertion/lookup loops
+- **Space Complexity**: O(n) hash table + O(search_count) auxiliary arrays
+
+### Current Limitations
+1. **Fixed Hash Table Size**: Currently hardcoded to 8 elements
+2. **Simple Hash Function**: Modulo operation creates clustering  
+3. **Linear Probing Overhead**: Performance degrades with high collision rates
+4. **No Dynamic Resizing**: Cannot grow hash table at runtime
+
+---
+
+## Next Phase: Version 3 - Warp Optimizations 🔄
+
+### Research Topics
+
+#### 1. **Warp Ballot Synchronization**
+```cpp
+unsigned int active = __ballot_sync(0xffffffff, stillSearching);
 if (!(active & (1 << lane_id))) break;
-"
-next topic :
-shl_sync
-also check if therea are any other methods and then write a lookup proegram ( thats phase 2)
-and _fss
+```
+**Current Understanding:**
+- **Advantage**: Saves compute power by early-exiting threads that found their elements
+- **Limitation**: Freed threads in a warp cannot be redirected to other work
+- **Use Case**: Efficient divergent search termination
+
+#### 2. **Shuffle Synchronization** 
+```cpp
+int peer_value = __shfl_sync(0xffffffff, value, source_lane);
+```
+**Potential Applications:**
+- **Intra-warp communication**: Share hash values without global memory
+- **Cooperative collision resolution**: Threads can help each other find empty slots
+- **Load balancing**: Redistribute work within warps dynamically
+
+#### 3. **Cooperative Groups**
+- **Fine-grained synchronization**: Beyond block-level barriers
+- **Dynamic thread regrouping**: Adapt group size based on workload
+- **Cross-warp cooperation**: Coordinate between warps for complex operations
+
+
+### Memory Architecture
+- **Host Memory**: STL containers (`std::vector<int>`) for dynamic input
+- **Device Global Memory**: Hash table, search arrays, result arrays
+- **Transfer Pattern**: Bulk `cudaMemcpy` with proper vector data extraction
+- **Initialization**: Hardware-accelerated `cudaMemset` using DMA engines
+
+
+
+**Current Status**: Version 2 Complete ✅ | **Next Target**: Warp Optimizations  
+**Hardware**: RTX 4070, RTX 2070 SUPER | **Language**: CUDA C++  
+**Performance**: 0 errors, clean memory management, robust collision handling
