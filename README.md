@@ -32,13 +32,14 @@ nvcc hashmap.cu -o hm
 ./hm
 ```
 
+
 ## Hardware Constraints
 
 Current development is optimized for:
 - **RTX 4070** and **RTX 2070 SUPER** GPUs
 - Solutions must respect the capabilities and limits of these GPUs
 
----
+
 
 ## Implementation Journey
 
@@ -49,12 +50,9 @@ To maximize efficiency, I'm focusing on optimizing **4 core metrics**:
 3. **Collision Handling** - System to resolve hash conflicts efficiently
 4. **Dynamic Resizing** - Automatically scale storage as key-value pairs increase
 
-
-
 ### Evolution Through Versions
 
 The project follows an iterative approach from naive (Version I) to highly optimized (Version N).
-
 
 
 ## Version 1: Baseline Implementation
@@ -111,91 +109,16 @@ cudaMemset(locn, 0xFF, size1);   // Results initialized to -1 (not found)
 ```
 **Advantage**: Leverages GPU's DMA engines instead of wasting SM cycles
 
-#### 2. **Race-Free Insertion Kernel**
-```cpp
-__global__ void insert_kernel(int n, int *h_keys, int *h_values) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x; 
-    if(tid < n) {
-        int ptv;
-        int base = h_values[tid] % n;
-        for(int i = 0; i < n; i++) {
-            int idx = (base + i) % n;
-            ptv = atomicCAS(&h_keys[idx], -1, h_values[tid]);
-            if(ptv == -1) 
-                return;   // Successfully inserted, exit
-        }
-    }
-}
-```
-
 **Key Features:**
 - **Linear Probing**: `(base + i) % n` for collision resolution
 - **Atomic Operations**: `atomicCAS` prevents race conditions
 - **Early Exit**: Return immediately on successful insertion
-
-#### 3. **Robust Lookup Kernel**
-```cpp
-__global__ void lookup_kernel(int n, int l, int* vals, int *locn, int* h_keys) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if(tid < l) {  // Check against search array size, not hash table size
-        int base = vals[tid] % n;
-        for(int i = 0; i < n; i++) {
-            if(vals[tid] == h_keys[(base + i) % n]) {
-                locn[tid] = (base + i) % n;
-                return;
-            }
-        }
-        // If not found, locn[tid] remains -1 (from cudaMemset)
-    }
-}
-```
-
-**Key Features:**
-- **Proper Thread Bounds**: `tid < l` where `l` is search count, not hash table size
-- **Linear Probing Search**: Same pattern as insertion for consistency
 - **Not Found Handling**: Relies on pre-initialized -1 values
-
-#### 4. **Dynamic User Input Processing**
-```cpp
-vector<int> temp;
-string x;
-int i = 0;
-while(cin >> x && x != "eol") {
-    try {
-        int number = stoi(x);
-        temp.push_back(number);
-    }
-    catch(const invalid_argument& e) {
-        cerr << "Error is:" << e.what() << '\n';
-    }
-    i++;
-}
-```
-
-**Features:**
 - **Dynamic sizing**: Vector grows as user adds elements
 - **Error handling**: Catches invalid input gracefully
 - **Flexible termination**: "eol" to end input
 
-#### 5. **Correct Memory Management**
-```cpp
-// Host allocations
-int *output = new int[i];
-int *h_temp = new int[i];
 
-// Device allocations  
-cudaMalloc(&g_k, size);
-cudaMalloc(&g_v, size);
-cudaMalloc(&locn, size1);
-cudaMalloc(&g_temp, size1);
-
-// Proper vector data copying
-cudaMemcpy(g_temp, temp.data(), size1, cudaMemcpyHostToDevice);
-
-// Complete cleanup
-cudaFree(g_k); cudaFree(g_v); cudaFree(locn); cudaFree(g_temp);
-delete[] output;  // Array deletion, not single object deletion
-```
 
 ### CUDA Memory Operations Deep Dive
 
@@ -207,52 +130,21 @@ cudaMemset(g_k, 0xFF, size);  // Sets each byte to 0xFF
 - **For -1 initialization**: `0xFF = 11111111` in binary = -1 for signed integers
 - **DMA advantage**: Uses dedicated memory controllers, not SMs
 
-**Vector vs Array Memory Transfer:**
-```cpp
-// ❌ WRONG - copies vector object metadata
-cudaMemcpy(g_temp, &temp, size1, cudaMemcpyHostToDevice);
-
-// ✅ CORRECT - copies actual data array
-cudaMemcpy(g_temp, temp.data(), size1, cudaMemcpyHostToDevice);
-```
 
 ### Debugging Journey
 
 #### Error 1: SIGSEGV (Address Boundary Error)
 **Cause**: 
-```cpp
 int *output;  // Uninitialized pointer
-cudaMemcpy(output, locn, size1, cudaMemcpyDeviceToHost);  // CRASH!
-```
+cudaMemcpy(output, locn, size1, cudaMemcpyDeviceToHost); 
+
 **Solution**: 
-```cpp
 int *output = new int[i];  // Proper allocation
-```
+
 
 #### Error 2: Wrong Memory Transfer Pattern
 **Cause**: Using `&temp` instead of `temp.data()` for vector
 **Solution**: Understanding vector object vs vector data distinction
-
-#### Error 3: Thread Bounds Mismatch
-**Original Issue**: 
-```cpp
-if(tid < n)  // Wrong! n=8 but search array has i elements
-```
-**Solution**:
-```cpp 
-if(tid < l)  // Correct! l=i is actual search count
-```
-
-#### Error 4: Lookup Results Display Logic
-**Final Implementation**:
-```cpp
-for(int l = 0; l < i; l++) {
-    if(output[l] == -1)
-        cout << "The element " << h_temp[l] << " is not a part of the hash table";
-    else
-        cout << h_temp[l] << " was found at " << output[l];
-}
-```
 
 ### Performance Test Results
 
@@ -268,22 +160,18 @@ Value: 80 - 10 30 20 50 60 70
 
 
 **Actual Output:**
-
 20 was found at 4
 70 was found at 7  
 The element 90 is not a part of the hash table
 The element 0 is not a part of the hash table
 
 
-**Analysis**: Linear probing working correctly with proper not-found detection.
+**Analysis**: 
 
 ### Debugging Tools Integration
 
 **compute-sanitizer Integration:**
-We Run on Bash:
-bash: "/opt/cuda/bin/compute-sanitizer ./hm"
-
-OUTPUT:
+/opt/cuda/bin/compute-sanitizer ./hm
 ========= COMPUTE-SANITIZER
 GPU HashMap Engine - CUDA Kernel Skeleton Initialized
 ...
@@ -295,17 +183,16 @@ GPU HashMap Engine - CUDA Kernel Skeleton Initialized
 2. **Race conditions** → Simultaneous memory modifications
 3. **API errors** → CUDA runtime/driver misuse
 
-
 ## Current Status: Version 2 Complete 
 
 ### Working Features
-- [x] **Batch Insertion**: Parallel hash table population using linear probing
-- [x] **Collision Resolution**: Atomic `atomicCAS` operations prevent race conditions  
-- [x] **Parallel Lookup**: Multi-threaded search with proper bounds checking
-- [x] **Dynamic Input**: User can search for any number of elements
-- [x] **Memory Efficiency**: DMA-based initialization, proper cleanup
-- [x] **Error Handling**: Robust input validation and memory management
-- [x] **Not Found Detection**: Proper handling of missing elements
+- **Batch Insertion**: Parallel hash table population using linear probing
+- **Collision Resolution**: Atomic `atomicCAS` operations prevent race conditions  
+- **Parallel Lookup**: Multi-threaded search with proper bounds checking
+- **Dynamic Input**: User can search for any number of elements
+- **Memory Efficiency**: DMA-based initialization, proper cleanup
+- **Error Handling**: Robust input validation and memory management
+- **Not Found Detection**: Proper handling of missing elements
 
 ### Performance Characteristics
 - **Hash Function**: `value % table_size` (simple but collision-prone)
@@ -322,31 +209,43 @@ GPU HashMap Engine - CUDA Kernel Skeleton Initialized
 
 ---
 
+## Next Phase: Version 3 - Warp Optimizations 🔄
 
+### Research Topics
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-"unsigned int active = __ballot_sync(0xffffffff, stillSearching);
+#### 1. **Warp Ballot Synchronization**
+```cpp
+unsigned int active = __ballot_sync(0xffffffff, stillSearching);
 if (!(active & (1 << lane_id))) break;
-"
-next topic :
-shl_sync
-also check if therea are any other methods and then write a lookup proegram ( thats phase 2)
-and _fss
+```
+**Current Understanding:**
+- **Advantage**: Saves compute power by early-exiting threads that found their elements
+- **Limitation**: Freed threads in a warp cannot be redirected to other work
+- **Use Case**: Efficient divergent search termination
 
+#### 2. **Shuffle Synchronization** 
+```cpp
+int peer_value = __shfl_sync(0xffffffff, value, source_lane);
+```
+**Potential Applications:**
+- **Intra-warp communication**: Share hash values without global memory
+- **Cooperative collision resolution**: Threads can help each other find empty slots
+- **Load balancing**: Redistribute work within warps dynamically
+
+#### 3. **Cooperative Groups**
+- **Fine-grained synchronization**: Beyond block-level barriers
+- **Dynamic thread regrouping**: Adapt group size based on workload
+- **Cross-warp cooperation**: Coordinate between warps for complex operations
+
+
+### Memory Architecture
+- **Host Memory**: STL containers (`std::vector<int>`) for dynamic input
+- **Device Global Memory**: Hash table, search arrays, result arrays
+- **Transfer Pattern**: Bulk `cudaMemcpy` with proper vector data extraction
+- **Initialization**: Hardware-accelerated `cudaMemset` using DMA engines
+
+
+
+**Current Status**: Version 2 Complete ✅ | **Next Target**: Warp Optimizations  
+**Hardware**: RTX 4070, RTX 2070 SUPER | **Language**: CUDA C++  
+**Performance**: 0 errors, clean memory management, robust collision handling
