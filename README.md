@@ -207,8 +207,6 @@ GPU HashMap Engine - CUDA Kernel Skeleton Initialized
 3. **Linear Probing Overhead**: Performance degrades with high collision rates
 4. **No Dynamic Resizing**: Cannot grow hash table at runtime
 
----
-
 ## Next Phase: Version 3 - Warp Optimizations 🔄
 
 ### Research Topics
@@ -237,15 +235,51 @@ int peer_value = __shfl_sync(0xffffffff, value, source_lane);
 - **Dynamic thread regrouping**: Adapt group size based on workload
 - **Cross-warp cooperation**: Coordinate between warps for complex operations
 
+IMPLEMENTATION PLAN:
+1) a new hashing algorithm which is far more efficient 
+2) trying to use shared memory 
+3) dynamic resixzing of hash table 
+4) check possibilities of splitting the hash table into parts
 
-### Memory Architecture
-- **Host Memory**: STL containers (`std::vector<int>`) for dynamic input
-- **Device Global Memory**: Hash table, search arrays, result arrays
-- **Transfer Pattern**: Bulk `cudaMemcpy` with proper vector data extraction
-- **Initialization**: Hardware-accelerated `cudaMemset` using DMA engines
+envisioning
+>when the user enters a new hash element into the table via the insert kernel, an efficient alg shud create a hash for it that must be unique,
+>this hash must be converting into a location as unique as possible.insert here.when looking up elements in the table or inserting, warps wll be scheduled ,ideally if we can achive perfect conditions the 32 threads in a warp finish simultaneously with no waiting for a single thread to find a new spot due to collision(which is possible only with all unique mapping)
+
+>TRAin of THOUGHT
+1)why note skip the conversion step of the hashed value to memory location by directly calculating a hash that will itself be small (not 64 bit something that will be within array size)
+issues identified - everytime the hash table size chnages (dynamic resizing based on number of elements)
+inefficieny- less collisions are experrienced due to a large 64 bit hash(the number of hash combinations are far more than array size)
+2)maybe try multiple different hash buckets in a hash which will greatly reduce search search complexity or maybe 2d storage so we put in similar elements in a single location but increasing its depth from 1 to n colliding elements
 
 
 
-**Current Status**: Version 2 Complete ✅ | **Next Target**: Warp Optimizations  
-**Hardware**: RTX 4070, RTX 2070 SUPER | **Language**: CUDA C++  
-**Performance**: 0 errors, clean memory management, robust collision handling
+
+PROBLEMS TO ANSWER
+1) What is the sweet spot for division into number of buckets like how how many parts shud i divide it into(RESEARCH)
+2) (we r using 64 bit hashes) selecting a hash that strikes a balance between calculation time collisions required(that is all the performance shud not be sacrificed just to give uniquiness)
+3) 
+
+
+
+
+
+WHAT WE WANT TO ACHIVE AT THE END:
+
+some things identified 
+unlike cpus its very expensive to linearly probe on a gpu cuz the entire warp ahs to wait owing to SIMT
+
+What the “ideal” GPU Hashmap might look like
+
+Hash function: Multiply-shift, cheap & well-mixed.
+
+Memory: Keys[] + Values[] arrays in global memory, aligned & padded.
+
+Probe strategy: Warp-cooperative linear probing with block size = 32 slots (fits warp).
+
+Atomics: Warp-wide atomicCAS batches.
+
+Shared memory caching for hot regions.
+
+Overflow stash for extreme collisions.
+
+Bulk operations: Designed to insert/look up batches of keys at once (not single-key API).
