@@ -1,5 +1,5 @@
 # GPU-Accelerated High-Performance Key-Value Store (GPU HashMap Engine)
-
+//consider a future possibility of dual capability of or benchmark cpu vs gpu by running GXhash on cpu and custom gpu or cucollection on gpu
 ## Project Overview
 
 This is my first CUDA C++ application project and also my first project on GitHub! 🚀 
