@@ -1,6 +1,80 @@
 //attempt to a 32 bit xxhash on gpu
 //just to have an example to work along lets assume were hashing a string "abcd efgh ijkl mnop qrs"
 //coop grps , shf_sync , ballot_sync
+
+
+
+/*CPU PSEUDOCODE
+
+
+Step 1:initialize counter
+if length >= 16:
+    v1 = seed + PRIME1 + PRIME2
+    v2 = seed + PRIME2
+    v3 = seed
+    v4 = seed - PRIME1
+else:
+    acc = seed + PRIME5
+
+
+
+
+
+Step 2: Process input in 16-byte chunks
+for each 16-byte block in data:
+    v1 = round(v1, word0)
+    v2 = round(v2, word1)
+    v3 = round(v3, word2)
+    v4 = round(v4, word3)
+
+where round(acc, input) =
+    acc = acc + (input * PRIME2)
+    acc = rotate_left(acc, 13)
+    acc = acc * PRIME1
+
+
+
+Step 3: Merge accumulators
+if length >= 16:
+    acc = rotate_left(v1, 1) +
+          rotate_left(v2, 7) +
+          rotate_left(v3, 12) +
+          rotate_left(v4, 18)
+else:
+    acc = seed + PRIME5
+
+
+
+Step 4: Process remaining bytes (<16)
+acc = acc + length
+
+while 4 bytes remain:
+    k1 = word
+    k1 = k1 * PRIME3
+    k1 = rotate_left(k1, 17)
+    k1 = k1 * PRIME4
+    acc = acc ^ k1
+    acc = rotate_left(acc, 17) * PRIME1 + PRIME4
+
+while 1 byte remains:
+    k1 = byte * PRIME5
+    acc = acc ^ k1
+    acc = rotate_left(acc, 11) * PRIME1
+
+
+
+
+Step 5: Final avalanche (mixing)
+acc = acc ^ (acc >> 15)
+acc = acc * PRIME2
+acc = acc ^ (acc >> 13)
+acc = acc * PRIME3
+acc = acc ^ (acc >> 16)
+
+
+*/
+
+
 #include<iostream>
 #include<cstdint>
 #include<string>
@@ -18,6 +92,7 @@ static constexpr uint32_t PRIME4 =  374761393u;
 int lane_id=threadIdx.x%warpSize;
 int warp_id = tid/warpSize;
 int unit=(4+length-1)/4;
+int res;
 //each warp works on one character maybe ? ie we make 32 bit divisions(4byte divisions(which would mean 4 characters per division))
 //(1bytes -> 2hex  character-> one char)
 //finally we conclude one warp will work on 4 bytes
@@ -33,17 +108,29 @@ int unit=(4+length-1)/4;
 
 if(tid<unit) // include all threads upto the closest multiple to 4 ( here all tid upto 16 ) 
 {
+if(lane_id%4==0) //includes threads 0,4,8 and so on
+int v1=SEED + PRIME1 + PRIME2;
+if(lane_id%4==1) // includes threads 1,5,9 so on
+int v2=SEED + PRIME2;
+if(lane_id%4==2) //includes threads 2,6,10 so on 
+int v3=SEED;
+if(lane_id%4==3) // includes threads 3,7,11 so on
+int v4=SEED-PRIME1;
+//now all we are storing is the initialized values of v1,v2,v3,v4
+const uint32_t* words = reinterpret_cast<const uint32_t*>(value); // this will read consecutive 4 bytes together that is its been converted from a char type array to a int type one 
+
+
+
+
 value[tid];
-/*if length >= 16:
-    v1 = seed + PRIME1 + PRIME2
-    v2 = seed + PRIME2
-    v3 = seed
-    v4 = seed - PRIME1
-else:
-    acc = seed + PRIME5
-*/
+// were gonna ccess in strides of 4 
+int v1=
 } 
-else ( all threads beyond x)
+else // all threads beyond x
+{
+res = SEED + PRIME4;
+}
+
 }
 
 
