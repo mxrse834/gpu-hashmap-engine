@@ -80,8 +80,16 @@ acc = acc ^ (acc >> 16)
 #include<string>
 using namespace std;
 #define TPB 1024
+#define SEED 0
+__device__ __forceinline__ uint32_t inst(uint32_t x,int s)
+{
+    return __funnelshift_l(x,x,s);
+}
 
-__global__ void hash(string value , int key,int length)
+
+
+
+__global__ void hash(void* value , int key,int length)
 {   extern __shared__ int mb[];  //define mixing bowls in shared mem and hence theyll there for each block
 int tid  = threadIdx.x + blockDim.x*blockIdx.x;
 //defining the primes 
@@ -106,25 +114,59 @@ int res;
 // we will need warp intrinsics across all 4 threads
 
 
+const uint32_t* words = reinterpret_cast<const uint32_t*>(value); 
+// this will read consecutive 4 bytes together that is its been converted from a char type array to a int type one 
 if(tid<unit) // include all threads upto the closest multiple to 4 ( here all tid upto 16 ) 
 {
-if(lane_id%4==0) //includes threads 0,4,8 and so on
-int v1=SEED + PRIME1 + PRIME2;
-if(lane_id%4==1) // includes threads 1,5,9 so on
-int v2=SEED + PRIME2;
-if(lane_id%4==2) //includes threads 2,6,10 so on 
-int v3=SEED;
-if(lane_id%4==3) // includes threads 3,7,11 so on
-int v4=SEED-PRIME1;
-//now all we are storing is the initialized values of v1,v2,v3,v4
-const uint32_t* words = reinterpret_cast<const uint32_t*>(value); // this will read consecutive 4 bytes together that is its been converted from a char type array to a int type one 
+if(lane_id<8) //includes threads 0,4,8 and so on
+{   uint32_t v1=SEED + PRIME1 + PRIME2;
+    v1+=words[lane_id]*PRIME2;
+    v1+=inst(v1,13);
+    v1*=PRIME1;
+}
+
+else if(lane_id<16) // includes threads 1,5,9 so on
+{
+    uint32_t v2=SEED + PRIME2;
+    v2+=words[lane_id]*PRIME2;
+    v2+=inst(v2,13);
+    v2*=PRIME1;
+}
+else if(lane_id) //includes threads 2,6,10 so on 
+{
+    uint32_t v3=SEED;
+    v3+=words[lane_id]*PRIME2;
+    v3+=inst(v3,13);
+    v3*=PRIME1;
+}
+else if (lane_id%4==3) // includes threads 3,7,11 so on
+{
+    uint32_t v4=SEED-PRIME1;
+    v4+=words[lane_id]*PRIME2;
+    v4+=inst(v4,13);
+    v4*=PRIME1;
+}
+//done with step of v1,v2,v3,v4 for16 bytes (4byte each)
+//now we combine them all
+/*Step 3: Merge accumulators
+if length >= 16:
+    acc = rotate_left(v1, 1) +
+          rotate_left(v2, 7) +
+          rotate_left(v3, 12) +
+          rotate_left(v4, 18)
+else:
+    acc = seed + PRIME5
+*/
+uint32_t v0=__shfl_down_sync(0xffffffff,v1)
 
 
 
 
-value[tid];
+
+
+ //now were accessing successive 4 byte grps by a single thread
 // were gonna ccess in strides of 4 
-int v1=
+
 } 
 else // all threads beyond x
 {
