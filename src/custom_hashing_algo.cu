@@ -81,6 +81,7 @@ acc = acc ^ (acc >> 16)
 using namespace std;
 #define TPB 1024
 #define SEED 0
+
 __device__ __forceinline__ uint32_t inst(uint32_t x,int s)
 {
     return __funnelshift_l(x,x,s);
@@ -118,28 +119,28 @@ const uint32_t* words = reinterpret_cast<const uint32_t*>(value);
 // this will read consecutive 4 bytes together that is its been converted from a char type array to a int type one 
 if(tid<unit) // include all threads upto the closest multiple to 4 ( here all tid upto 16 ) 
 {
-if(lane_id<8) //includes threads 0,4,8 and so on
+if(lane_id<8) 
 {   uint32_t v1=SEED + PRIME1 + PRIME2;
     v1+=words[lane_id]*PRIME2;
     v1+=inst(v1,13);
     v1*=PRIME1;
 }
 
-else if(lane_id<16) // includes threads 1,5,9 so on
+else if(lane_id<16) 
 {
     uint32_t v2=SEED + PRIME2;
     v2+=words[lane_id]*PRIME2;
     v2+=inst(v2,13);
     v2*=PRIME1;
 }
-else if(lane_id) //includes threads 2,6,10 so on 
+else if(lane_id<24) 
 {
     uint32_t v3=SEED;
     v3+=words[lane_id]*PRIME2;
     v3+=inst(v3,13);
     v3*=PRIME1;
 }
-else if (lane_id%4==3) // includes threads 3,7,11 so on
+else if (lane_id<32) 
 {
     uint32_t v4=SEED-PRIME1;
     v4+=words[lane_id]*PRIME2;
