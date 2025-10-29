@@ -283,3 +283,9 @@ Shared memory caching for hot regions.
 Overflow stash for extreme collisions.
 
 Bulk operations: Designed to insert/look up batches of keys at once (not single-key API).
+
+
+
+
+1) for now we have decided on 3 diff strategies - namely one byte one string (CPU type comp), 2nd one is 4 bytes one string , third is is for very long strings  
+  alternate thought - tweak this idea and launch only 2 threads (or add 2 kernel launch options in each one for greater than 16 byyte and for lesser this would avoid excessive branching and wasteful checks ?)
