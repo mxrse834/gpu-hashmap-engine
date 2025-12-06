@@ -469,3 +469,8 @@ Bulk operations: Designed to insert/look up batches of keys at once (not single-
         cr[wid] = res;
     }*/
 }
+
+///
+PROBLEMS KNOWN
+1) 75% thread underultilixzation in hashmap.cu
+2) methods to append the new offsets into the MASTEROFFSET ARRAY AND MASTERBYTE ARRAY.vector is a host size  function 

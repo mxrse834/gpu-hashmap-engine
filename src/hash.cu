@@ -95,14 +95,15 @@ acc = acc ^ (acc >> 16)
 
 
 */
+#include<hash.cuh>
 #include <iostream>
 #include <cuda_runtime.h>
 #include <cstdint>
 #include <string>
+#include <cooperative_groups.h>
 using namespace std;
 #define TPB 1024
 #define SEED 0
-#include <cooperative_groups.h>
 namespace cg = cooperative_groups;
 #define P1 2246822519;
 #define P2 3266489917;
@@ -132,19 +133,19 @@ __device__ __forceinline__ uint32_t round(uint32_t r, uint32_t w)
     return r;
 }
 
-__global__ void xh332(
-    uint8_t *bytes, 
-    uint32_t *offset, 
-    uint32_t *results_h1,
-    uint32_t *results_h2,
-    uint32_t *results_h3
+__device__ void xh332(
+    uint8_t *bytes,
+    uint32_t tid, 
+    uint32_t wid,
+    uint32_t *offset,
+    uint32_t *words, 
+    uint32_t res1,
+    uint32_t res2,
+    uint32_t res3
 ) {
+    //const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
-    
-    uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;
-    uint32_t wid = tid / 4;
-    
+    //uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;    
     if (wid >= 630) return;
     
     uint32_t start = offset[wid];
@@ -167,9 +168,9 @@ __global__ void xh332(
     
     // Initialize results for all three hash functions
     // Uses same logic as your: res = (1 - mask) * (SEED + g[6])
-    uint32_t res1 = (1 - mask) * (seeds[0] + g[6]);
-    uint32_t res2 = (1 - mask) * (seeds[1] + g[6]);
-    uint32_t res3 = (1 - mask) * (seeds[2] + g[6]);
+    res1 = (1 - mask) * (seeds[0] + g[6]);
+    res2 = (1 - mask) * (seeds[1] + g[6]);
+    res3 = (1 - mask) * (seeds[2] + g[6]);
     
     uint32_t i = 0;
     
@@ -267,12 +268,7 @@ __global__ void xh332(
         res3 *= g[1];
         res3 ^= res3 >> 13;
         res3 *= g[4];
-        res3 ^= res3 >> 16;
-        
-        // Store all three results
-        results_h1[wid] = res1;
-        results_h2[wid] = res2;
-        results_h3[wid] = res3;
+        res3 ^= res3 ;
     }
 }
 
