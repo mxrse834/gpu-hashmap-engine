@@ -1,9 +1,17 @@
 #include<iostream>
 #include<cstdint>
 #include<cuda_runtime.h>
-#include"custom_hashing_algo.cuh"
+#include"hashmap.cuh"
+#include"hash.cuh"
 using namespace std;
 #define TPB 1024
+
+
+__global__ void hashmap()
+    {
+        extern __shared__ uint32_t shmem[];
+    }
+
 
 
 int main()
@@ -39,7 +47,7 @@ uint32_t PRIME5 = 0x165667B1   ;*/
     // cudaMalloc((void **)&cpures, sizeof(uint32_t));
     cudaMemcpy(g_a, val.c_str(), len, cudaMemcpyHostToDevice);
     cudaMemcpy(g_b, offsets, sizeof(uint32_t) * 631, cudaMemcpyHostToDevice);
-    xh332<<<grid, block>>>(g_a, g_b, g_out1,g_out2,g_out3);
+    //xh332<<<grid, block>>>(g_a, g_b, g_out1,g_out2,g_out3);
     cudaDeviceSynchronize();
     uint32_t h_out[631];
     cudaMemcpy(h_out, g_out1, 631 * sizeof(uint32_t), cudaMemcpyDeviceToHost);

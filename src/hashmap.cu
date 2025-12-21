@@ -1,13 +1,16 @@
 // small frequently used hashmaps entries we place in shared memory manually
-
+// #include <thrust/device_vector.h>
 #include <vector>
 #include <iostream>
+#include <cooperative_groups.h>
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <cstdint>
 #include <hash.cuh>
-#define TPB 1024
+#define TPB 256
+#define BPG 140
 using namespace std;
+namespace cg = cooperative_groups;
 
 // ==============================
 // GPU HashMap Engine - Core File
@@ -24,17 +27,15 @@ using namespace std;
     uint32_t *offset;     // Where in that batch
     uint32_t length;     // How long
 };*/
-
 struct hashmap_engine
 {
     int n = 4294967296;
     int o_n = 10000;
-    vector<uint8_t> MASTERBYTES;
-    vector<uint32_t> MASTEROFFSET;
-
+    int master_offset_current = 0;
+    int master_byte_current = 0;
+    int *master_bytes;
+    int *master_offset;
     // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    int wid = tid / 4;
     int *key;
     int *value;
     int *o_key;
@@ -42,37 +43,92 @@ struct hashmap_engine
 
     // lets say n is size of our hash table , lets maintain a healthy
     // Kernel: Insert Key-Value Pair into Hash Table (out goal in this part is to generate a key for a specific value to get a key,value pair and store this in our dictionary)
-    __device__ void insert_kernel(uint8_t *bytes, uint32_t *offset, uint32_t *data)
+    __device__ void insert_kernel(uint32_t *words,
+                                  uint32_t *offset,
+                                  uint32_t *data,
+                                  uint32_t length_offset,
+                                  uint32_t length_bytes,
+                                  uint32_t master_byte_current,
+                                  uint32_t master_offset_current)
+    // void *shmem)
     {
-        if (tid < sizeof(bytes) / sizeof(uint32_t))
-        { /// h_keys[tid]=-1;//declare an array in global mem that can carry 8 elements initialize arr to -1
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+        // implementation of double buffering into shared memory to deal with waves efficiently
+        // inour implementation we have 1 wave = 256*160 = 40960threads( maximum number of threads that can exist on the 40 SM's of 2070 super)
+        // above is a example of our current gpu
+        // shared memory calculation per wave ->
+        // 1) 4 threads map to one shared memory string therefore 1 offset
+        // 2) therefore we have 256/4= 64 offsets per block each uint32_t therefore 256 bytes per block (there is a hrdware limit of 48kb(configurable upto 64kb) which we are well within)
+        // 3) total shared memory used(for 1 wave is) is 40960 bytes which is 40kb
+        // 4) trying to understand hardware limitation->
+        //    in this  case we have 4 blocks that will be in a SM at any point in time each SM has its own shared memory limited to exactly 48(or 64)
+        //    so we have 48/4=12 kb for each block and each block requires 256 b to store offsets + 8 bytes for storing master_offset_current and master_byte_current
+        //    in total we are using 264 bytes out of 12288(12kb).
+        // 5) SETUP FOR SINGLE BUFFERING
+        int tid = blockIdx.x * blockDim.x + threadIdx.x;
+        uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
+
+        // uint32_t *words = reinterpret_cast<uint32_t *>(byte);
+        /*uint32_t *master_vals = (uint32_t *)shmem;
+        master_vals[0] = master_byte_currentv;
+        master_vals[1] = master_offset_currentv;
+        master_byte_current = master_vals[0];
+        master_offset_current = master_vals[1];
+        // uint8_t *bytes = (uint8_t *)(master_vals + 2);
+        uint32_t *words = (uint32_t *)(master_vals + 2);
+        uint32_t *offset = (uint32_t *)(words + (length_bytes / 4));*/
+        for (uint32_t wid = tid / 4; wid < length_offset; wid += (gridDim.x * blockDim.x) / 4)
+        {
+
             uint32_t results_h1;
             uint32_t results_h2;
             uint32_t results_h3;
-            uint32_t *words = reinterpret_cast<uint32_t *>(bytes);
-
+            // calling the custom hashing function from the included hash.cuh file
             xh332(
                 bytes,
                 tid, wid,
                 offset, words,
                 results_h1,
                 results_h2,
-                results_h3);
-            // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
-            if (tid % 4 == 0)
+                results_h3,
+                length_bytes,
+                length_offset);
+
+            // each thread takes up one string to copy into the master bytes
+
+            if (wid < length_offset)
             {
-                if (atomicCAS(&key[results_h1], -1, words[wid]) == -1)
+                uint32_t editaT = offset[wid];
+                uint32_t tile_no = tile.thread_rank();
+                for (int i = tile_no; i < len; i = i + 4)
+                {
+                    master_bytes[master_byte_current + editaT + i + 1] = bytes[start + i]; // CODE FOR COPYING INTO MASTERBYTE
+                }
+                //(each wid : one offset)
+                if (tile_no == 0)
+                    master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;
+            }
+            tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
+            if (tid == 0)
+            {
+                master_offset_current += length_offset;
+                master_byte_current += length_bytes;
+            }
+            tile.sync();
+            if (tile.thread_rank() == 0)
+            {
+                if (atomicCAS(&key[results_h1], -1, master_offset[wid]) == -1)
                 {
                     value[results_h1] = data[wid];
                     return;
                 }
 
-                if (atomicCAS(&key[results_h2], -1, words[wid]) == -1)
+                if (atomicCAS(&key[results_h2], -1, master_offset[wid]) == -1)
                 {
                     value[results_h2] = data[wid];
                     return;
                 }
-                if (atomicCAS(&key[results_h3], -1, words[wid]) == -1)
+                if (atomicCAS(&key[results_h3], -1, master_offset[wid]) == -1)
                 {
                     value[results_h3] = data[wid];
                     return;
@@ -84,52 +140,66 @@ struct hashmap_engine
                     int idx = (overflow_slot + i) % o_n; //  the for loop over "i" allows for linear probing
                     if (atomicCAS(&o_key[idx], -1, words[wid]) == -1)
                     {
-                        o_value[wid] = data[wid];
+                        o_value[idx] = data[wid];
                         return;
                     }
                 }
-                if (tid == 0)
-                {
-                    MASTERBYTES.insert(MASTERBYTES.end(), bytes, bytes + sizeof(bytes) / sizeof(bytes[0]));
-                    MASTEROFFSET.insert(MASTEROFFSET.end(), offset, offset + sizeof(offset) / sizeof(offset[0]));
-                }
-                /*do
-                { if(i<n)
-                  {
-                    int idx = (base+i)%n;
-                    ptv=atomicCAS(&h_keys[idx],-1,h_values[tid]); //will lock the the position address given
-                    //and allow only one thread to execute at a a time to prevent any race condition
-                    //ptv launches a per thread variable and in atomicCAS it will store the old value in index[tid] that was replaced
-                 if(ptv==-1)
-                 return;
-                 i++;}
-                  else
-                 return;
-                }
-                while(i<n);*/
-                // same code as the above for loop less modular and easy to understand
-                // okay now lets store the values we have in our keys lets copy to shared memory
             }
+            
+            /*if (tid == 0)
+                      {
+                          MASTERBYTES.insert(MASTERBYTES.end(), bytes, bytes + sizeof(bytes) / sizeof(bytes[0]));
+                          MASTEROFFSET.insert(MASTEROFFSET.end(), offset, offset + sizeof(offset) / sizeof(offset[0]));
+                      }*/
+            // start,posn,len,bytes,offset,
+            //  on my gpu vram = 8 gb keeping a 2 gb overhead we can store about 6.4 bil bytes
         }
     }
 
     // Kernel: Lookup Key in Hash Table
-    __device__ void lookup_kernel(int n)
+    __device__ void lookup_kernel(uint8_t *qbytes,
+                                  uint32_t *qoffset,
+                                  uint32_t length_qoffset,
+                                  uint32_t length_qbytes,
+                                  uint32_t *results)
     {
-        // so the lookup kenerl with take some value and use the hashing function (%) on it and return a a place value where the lement may be stored or maybe have to linearly probe further
-        if (tid < l)
+        // we need to first apply the 3 hash functions on our input , then we must must calc address ( check overflow buffer also)
+        // and probe until we find it , now we return the data associated with it if found
+        cg::thread_block_tile<4> tile= cg::tiled_partition<4>(cg::this_thread_block());
+        uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
+        uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+        for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
         {
-            int base = vals[tid] % n; // thi will give the ele location without collision
-            for (int i = 0; i < n; i++)
+            uint32_t results_h1;
+            uint32_t results_h2;
+            uint32_t results_h3;
+            uint32_t os;
+            xh332(
+                qbytes,
+                tid, wid,
+                qoffset, qwords,
+                results_h1,
+                results_h2,
+                results_h3,
+                length_qbytes,
+                length_qoffset);
+            //now we have each thread_rank==0 holding three variables namely results_h1,results_h2,results_h3
+            //once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
+            if(tile.thread_rank()==0)
             {
-                if (vals[tid] == h_keys[(base + i) % n])
-                {
-                    locn[tid] = (base + i) % n;
-                    return;
-                }
+                os=master_offset[results_h1]; //now all threads that hacve id 0 in the tile hold the offsets that may hold the right string 
             }
+            tile.shfl(os,0);
+            for(uint32_t i = tile.thread_rank();i<master_offset[results_h1+1]||i<length_qoffset;i+=4)
+            {
+                if(tile.all(master_bytes[master_offset[os]+i]==qbytes[qoffset[wid]+i]))
+                {}
+            }
+                 
+
         }
     }
+
     // Kernel: Delete Key from Hash Table
     __device__ void delete_kernel(int *keys, int *hash_table_keys, int *hash_table_values, int num_items)
     {

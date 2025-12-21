@@ -139,17 +139,18 @@ __device__ void xh332(
     uint32_t wid,
     uint32_t *offset,
     uint32_t *words, 
-    uint32_t res1,
-    uint32_t res2,
-    uint32_t res3
+    uint32_t &res1,
+    uint32_t &res2,
+    uint32_t &res3,
+    uint32_t length_bytes,
+    uint32_t length_offset
 ) {
     //const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    //uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;    
-    if (wid >= 630) return;
-    
+    //uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;  
+    //uint32_t local_wid=(i+threadIdx.x)/4;
     uint32_t start = offset[wid];
-    uint32_t len = offset[wid + 1] - start;
+    uint32_t len = offset[wid + 1] - start;  
     uint32_t posn = (start / 4) + tile.thread_rank();
     
     // Three sets of accumulators - one per hash function
@@ -172,11 +173,11 @@ __device__ void xh332(
     res2 = (1 - mask) * (seeds[1] + g[6]);
     res3 = (1 - mask) * (seeds[2] + g[6]);
     
-    uint32_t i = 0;
+    uint32_t j = 0;
     
-    // Process 16-byte chunks - identical logic to yours, just tripled
+    // Process 16-byte chunks 
     // Load word once, process through all three hash functions
-    for (; i + 16 <= len; i += 16) {
+    for (; j + 16 <= len; j += 16) {
         uint32_t word = words[posn];  // Single load from memory
         v1[tile.thread_rank()] = round(v1[tile.thread_rank()], word);
         v2[tile.thread_rank()] = round(v2[tile.thread_rank()], word);
@@ -204,7 +205,6 @@ __device__ void xh332(
         res3 += tile.shfl(inst(v3[2], 12), 2);
         res3 += tile.shfl(inst(v3[3], 18), 3);
     }
-    
     // Process remaining bytes - YOUR EXACT LOGIC, just for three results
     if (tile.thread_rank() == 0) {
         // Add length to all three results
@@ -234,7 +234,7 @@ __device__ void xh332(
             res3 = inst(res3, 17) * -g[3] + g[5];
         }
         
-        // Process remaining individual bytes - your exact while loop structure
+        // Process remaining individual bytes
         while (i < len) {
             k1 = bytes[start + i] * g[6];
             
@@ -251,7 +251,7 @@ __device__ void xh332(
             i++;
         }
         
-        // Final avalanche - your exact sequence, for all three
+        // Final avalanche
         res1 ^= res1 >> 15;
         res1 *= g[1];
         res1 ^= res1 >> 13;

@@ -471,6 +471,57 @@ Bulk operations: Designed to insert/look up batches of keys at once (not single-
 }
 
 ///
+Double buffering-load in one tile while processing another
+
+///
+HARDWARE UNDERSTANDING OF THE RTX 2070 SUPER:
+   We have 40 Streaming multiprocessors(SMs) ,each SM can have upto 1024 resident thread(32warps)
+   ,now the main part which is general to all turing architecture cards each SM has 4 hardware schedulers(each nominates 1 warp to run) , so by doing some basic math we see that 4*32=128 threads run (truly)parallely in a single clock per SM.but all 4 blocks in our case run concurrently .the SM can only see 1024 threads= 32 warps running it cannot differentiate between blocks.The shared memory and L1exist in teh same physical space hence cuda allows us to partition it as per our choice - these 3 choices are available: 
+        | Shared Memory | L1 Cache |
+        | ------------- | -------- |
+        | **64 KB**     | 32 KB    |
+        | **48 KB**     | 48 KB    |
+        | **32 KB**     | 64 KB    |
+
+    GENERAL INFO:
+        | Component              | Count               |
+        | ---------------------- | ------------------- |
+        | Warp Schedulers        | **4**               |
+        | Dispatch Units         | **8**               |
+        | FP32 Cores             | **64**              |
+        | INT32 Cores            | **64**              |
+        | Tensor Cores           | **8**               |
+        | Load/Store Units       | **8**               |
+        | Special Function Units | **4**               |
+        | Registers              | **65,536 (256 KB)** |
+        | Shared Memory          | **Up to 64 KB**     |
+        | L1 Cache               | **32 KB**           |
+        | Texture Units          | **4**               |
+
+///
 PROBLEMS KNOWN
 1) 75% thread underultilixzation in hashmap.cu
-2) methods to append the new offsets into the MASTEROFFSET ARRAY AND MASTERBYTE ARRAY.vector is a host size  function 
+3) if i use shared memory for storing the bytes array in addition to the already stored offset   array ( whihc has a theoretical limit of 64 uint32_t offsets(256 bytes) per block) i will have to face a limit of 192 characters per string on avg ( where i use all 64 offsets)
+To somewhat resolve this issue we can inc blocksize ( like instead od 256*160 maybe 512 * 80)
+that we we get a larger shared memory and can accomodate for more inconsistent string sizes
+4) master_offset_current should hold the next empty block and NOT THE LAST FILLED BLOCK
+5) ALWAYS LAUNCH KERNEL IN A MULTIPLE OF 4 ELSE IT WILL FAIL(NEEDS TO BE DEALT WITH IN PROGRAM MAYBE PAD INPUT ?)
+why ? in hashmap.cu for better compiler optimization we have two if condition (which will be run in parallel) as one uses threads%4 ==0 and one uses ==1 ( BUT A MAJOR ASSUMPTION IN THIS IS NUMBER OF THREADS IS EVEN)
+6) upper limits of tids , wids are having alot of illegal memory access patterns
+7) if last string in the burst being hashed is a single byte , program will fail
+8) cannot write more than ~500,000 strings at once(shared memory limitations)
+9) ***must always launch in multiples of 4 (threads must always  be in multiples of 4)***
+10) in the atmoicCAS fucntion that is defined under a tid%4==0 condition
+    we cant achive parallelism here as one thread writes a balue to glob al mem that the other one needs
+11) whenever we give input were gonna have to add a final offset that is qeuqal to total size of bytes and all the condition that run must aassume total size - 1 this element will only be a padding measure    
+TODO
+1) initialize key array to -1 ->cudaMemset
+2) try to use shared memory for every insertion burst ( use it for offsets  (ALSO U CAN ONLY USE IN __GLOBAL__ NOT IN __DEVICE__))
+>>>>>>> setup single buffering code for shared memory in hashmap.cu
+also use the manual method to inc shared memory from 48 to 64
+
+3) now that weve declared everything inshared memory we need to convert the entire code in terms of their thread idx.x and not tid
+
+4) make local_offset and local_bytes arrays to store the words that will be worked on in that iteration
+
+5) SHIT! THERES SO MUCH PERFORMANCE IM LEAVING ON THE TABLE CAN JUST DO A TILE.SHFL ( TRY TO IMPLEMENT IMMEDIATELY IN INSERT KERNEL)
