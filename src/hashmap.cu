@@ -31,10 +31,11 @@ struct hashmap_engine
 {
     int n = 4294967296;
     int o_n = 10000;
-    int master_offset_current = 0;
+    // int master_offset_current = 0;
     int master_byte_current = 0;
     int *master_bytes;
-    int *master_offset;
+    // int *master_offset;
+    uint32_t last_offset_val = 0;
     // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
     int *key;
     int *value;
@@ -48,9 +49,9 @@ struct hashmap_engine
                                   uint32_t *data,
                                   uint32_t length_offset,
                                   uint32_t length_bytes,
-                                  uint32_t master_byte_current,
-                                  uint32_t master_offset_current)
-    // void *shmem)
+                                  /*uint32_t master_offset_current*/
+                                  uint32_t last_offset_val,
+                                  uint32_t master_byte_current)
     {
         cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
         // implementation of double buffering into shared memory to deal with waves efficiently
@@ -105,30 +106,31 @@ struct hashmap_engine
                     master_bytes[master_byte_current + editaT + i + 1] = bytes[start + i]; // CODE FOR COPYING INTO MASTERBYTE
                 }
                 //(each wid : one offset)
-                if (tile_no == 0)
-                    master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;
+                /*if (tile_no == 0)
+                    master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;*/
             }
             tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
-            if (tid == 0)
+            /*pif (tid == 0)
             {
                 master_offset_current += length_offset;
                 master_byte_current += length_bytes;
             }
-            tile.sync();
+            tile.sync();*/
+
             if (tile.thread_rank() == 0)
             {
-                if (atomicCAS(&key[results_h1], -1, master_offset[wid]) == -1)
+                if (atomicCAS(&key[results_h1], -1, last_offset_val + offset[wid]) == -1)
                 {
                     value[results_h1] = data[wid];
                     return;
                 }
 
-                if (atomicCAS(&key[results_h2], -1, master_offset[wid]) == -1)
+                if (atomicCAS(&key[results_h2], -1, last_offset_val + offset[wid]) == -1)
                 {
                     value[results_h2] = data[wid];
                     return;
                 }
-                if (atomicCAS(&key[results_h3], -1, master_offset[wid]) == -1)
+                if (atomicCAS(&key[results_h3], -1, last_offset_val + offset[wid]) == -1)
                 {
                     value[results_h3] = data[wid];
                     return;
@@ -145,7 +147,10 @@ struct hashmap_engine
                     }
                 }
             }
-            
+            if (tid == 0)
+            {
+                last_offset_val = offset[length_offset];
+            }
             /*if (tid == 0)
                       {
                           MASTERBYTES.insert(MASTERBYTES.end(), bytes, bytes + sizeof(bytes) / sizeof(bytes[0]));
@@ -165,7 +170,7 @@ struct hashmap_engine
     {
         // we need to first apply the 3 hash functions on our input , then we must must calc address ( check overflow buffer also)
         // and probe until we find it , now we return the data associated with it if found
-        cg::thread_block_tile<4> tile= cg::tiled_partition<4>(cg::this_thread_block());
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
         uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
         uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
         for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
@@ -173,7 +178,9 @@ struct hashmap_engine
             uint32_t results_h1;
             uint32_t results_h2;
             uint32_t results_h3;
-            uint32_t os;
+            uint32_t os1;
+            uint32_t os2;
+            uint32_t os3;
             xh332(
                 qbytes,
                 tid, wid,
@@ -183,40 +190,125 @@ struct hashmap_engine
                 results_h3,
                 length_qbytes,
                 length_qoffset);
-            //now we have each thread_rank==0 holding three variables namely results_h1,results_h2,results_h3
-            //once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
-            if(tile.thread_rank()==0)
+            // now we have each thread_rank==0 holding three variables namely results_h1,results_h2,results_h3
+            // once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
+            if (tile.thread_rank() == 0)
             {
-                os=master_offset[results_h1]; //now all threads that hacve id 0 in the tile hold the offsets that may hold the right string 
+                os1 = key[results_h1]; // key is an array that holds all the offsets correspoding to
+                os2 = key[results_h2];
+                os3 = key[results_h3];
             }
-            tile.shfl(os,0);
-            for(uint32_t i = tile.thread_rank();i<master_offset[results_h1+1]||i<length_qoffset;i+=4)
+            os1 = tile.shfl(os1, 0); // now all threads hold in the os thread variable the value of results_h1
+            bool failed = false;
+            for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
             {
-                if(tile.all(master_bytes[master_offset[os]+i]==qbytes[qoffset[wid]+i]))
-                {}
+                if (master_bytes[os1 + i] != qbytes[qoffset[wid] + i])
+                { // code for key value pair found at address
+                    failed = true;
+                    break;
+                }
             }
-                 
+            // we cannot return threads until all the for loops have completed for a given string
+            failed = tile.any(failed);
+            if (!failed)
+            {
+                if (tile.thread_rank() == 0)
+                    results[wid] = value[results_h1];
+                return;
+            }
+            ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
+            /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
+            // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
 
+            os2 = tile.shfl(os2, 0);
+            failed = false;
+            for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
+            {
+                if (master_bytes[os2 + i] != qbytes[qoffset[wid] + i])
+                { // code for key value pair found at address
+                    failed = true;
+                    break;
+                }
+                // we cannot return threads until all the for loops have completed for a given string
+            }
+            tile.sync();
+            failed = tile.any(failed);
+            if (!failed)
+            {
+                if (tile.thread_rank() == 0)
+                    results[wid] = value[results_h2];
+                return;
+            }
+            ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
+            /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
+            // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
+            os3 = tile.shfl(os3, 0);
+            failed = false;
+            for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
+            {
+                if (tile.any(master_bytes[os3 + i] != qbytes[qoffset[wid] + i]))
+                { // code for key value pair found at address
+                    failed = true;
+                    break;
+                }
+                // we cannot return threads until all the for loops have completed for a given string
+            }
+            tile.sync();
+            failed = tile.any(failed);
+            if (!failed)
+            {
+                if (tile.thread_rank() == 0)
+                    results[wid] = value[results_h3];
+                return;
+            }
+            /// on going through all these three hash funcitons our required kay , value pair is still not found we finally move on to our overflow hash table------------------------------_>HERE
+            ///
         }
     }
 
     // Kernel: Delete Key from Hash Table
-    __device__ void delete_kernel(int *keys, int *hash_table_keys, int *hash_table_values, int num_items)
+    __device__ void delete_kernel(uint8_t *qbytes,
+                                  uint32_t *qoffset,
+                                  uint32_t length_qoffset,
+                                  uint32_t length_qbytes)
     {
-        int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
         // Placeholder for delete logic
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+        uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
+        uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+        for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
+        {
+            uint32_t results_h1;
+            uint32_t results_h2;
+            uint32_t results_h3;
+            uint32_t os1;
+            uint32_t os2;
+            uint32_t os3;
+            xh332(
+                qbytes,
+                tid, wid,
+                qoffset, qwords,
+                results_h1,
+                results_h2,
+                results_h3,
+                length_qbytes,
+                length_qoffset); ///-----------------------------------------------------------------------------------------____>HERE
+        }
     }
 };
 
 __global__ void hash_kernel(hashmap_engine h) {
+    // how we will be using this is taking the struct as an argument and then callign all device functions from it using this kernel
 
 };
 
 // Main Testing Function
+/*
 int main()
 {
     std::cout << "GPU HashMap Engine - CUDA Kernel Skeleton Initialized" << std::endl;
-    int h[] = {10, 20, 30, 40, 50, 60, 70, 80}; // sample values*/
+    int h[] = {10, 20, 30, 40, 50, 60, 70, 80}; // sample values
     int n = 8;
     string x;
     vector<int> temp;
@@ -272,3 +364,4 @@ int main()
     delete[] output;
     return 0;
 }
+*/

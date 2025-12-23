@@ -525,3 +525,6 @@ also use the manual method to inc shared memory from 48 to 64
 4) make local_offset and local_bytes arrays to store the words that will be worked on in that iteration
 
 5) SHIT! THERES SO MUCH PERFORMANCE IM LEAVING ON THE TABLE CAN JUST DO A TILE.SHFL ( TRY TO IMPLEMENT IMMEDIATELY IN INSERT KERNEL)
+
+6) is it possible  to remove the master_offset array ?
+s
