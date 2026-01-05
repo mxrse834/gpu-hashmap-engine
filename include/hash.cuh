@@ -1,7 +1,11 @@
 #include<cstdint>
-#ifndef HASH_H
-#define HASH_H
+#ifndef HASH
+#define HASH
 
+
+//if linker errors are persistent here in xh332 try :
+//1)making it inline 
+//2)forcing it inline :)
 
 __device__ void xh332(
     uint8_t *bytes,

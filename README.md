@@ -473,6 +473,34 @@ Bulk operations: Designed to insert/look up batches of keys at once (not single-
 ///
 Double buffering-load in one tile while processing another
 
+////To test effectiveness of the hashing code :
+**__global__ void test_hash_distribution(
+    uint8_t* test_strings,
+    uint32_t* offsets,
+    uint32_t num_strings,
+    uint32_t* bucket_counts,  // Size n, initialized to 0
+    uint32_t n)
+{
+    uint32_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    for (uint32_t wid = tid / 4; wid < num_strings; wid += ...) {
+        uint32_t h1, h2, h3;
+        xh332(..., h1, h2, h3, ...);
+        
+        if (tile.thread_rank() == 0) {
+            atomicAdd(&bucket_counts[h1 % n], 1);
+            atomicAdd(&bucket_counts[h2 % n], 1);
+            atomicAdd(&bucket_counts[h3 % n], 1);
+        }
+    }
+}
+
+// On host: check if bucket_counts are roughly uniform
+// Expected: each bucket has ~(3 * num_strings / n) items
+// If variance is high, you have clustering
+**
+
+
 ///
 HARDWARE UNDERSTANDING OF THE RTX 2070 SUPER:
    We have 40 Streaming multiprocessors(SMs) ,each SM can have upto 1024 resident thread(32warps)
@@ -527,4 +555,13 @@ also use the manual method to inc shared memory from 48 to 64
 5) SHIT! THERES SO MUCH PERFORMANCE IM LEAVING ON THE TABLE CAN JUST DO A TILE.SHFL ( TRY TO IMPLEMENT IMMEDIATELY IN INSERT KERNEL)
 
 6) is it possible  to remove the master_offset array ?
-s
+
+7) optimize all the hash functions to do 4 thread comparisons at a time  , alr being implemented in overflow hash table 
+
+8) Look into quotient-remainder probing as  replcament for linear probing
+
+9) Can we presorty inseryions or lookups to have Better coalescing ? 
+
+10) besides the offset why dont we add first m bytes of the actual value to check for a simpler check
+
+11) sawp the tile.any() checks with ballots + __ffs or butterfly reduction ( check feasiblity since tile.any() has unecessary iterations)

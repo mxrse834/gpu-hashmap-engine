@@ -95,7 +95,7 @@ acc = acc ^ (acc >> 16)
 
 
 */
-#include<hash.cuh>
+#include <hash.cuh>
 #include <iostream>
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -135,70 +135,71 @@ __device__ __forceinline__ uint32_t round(uint32_t r, uint32_t w)
 
 __device__ void xh332(
     uint8_t *bytes,
-    uint32_t tid, 
+    uint32_t tid,
     uint32_t wid,
     uint32_t *offset,
-    uint32_t *words, 
+    uint32_t *words,
     uint32_t &res1,
     uint32_t &res2,
     uint32_t &res3,
     uint32_t length_bytes,
-    uint32_t length_offset
-) {
-    //const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
+    uint32_t length_offset)
+{
+    // const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    //uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;  
-    //uint32_t local_wid=(i+threadIdx.x)/4;
+    // uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;
+    // uint32_t local_wid=(i+threadIdx.x)/4;
     uint32_t start = offset[wid];
-    uint32_t len = offset[wid + 1] - start;  
+    uint32_t len = offset[wid + 1] - start;
     uint32_t posn = (start / 4) + tile.thread_rank();
-    
+
     // Three sets of accumulators - one per hash function
     uint32_t v1[4], v2[4], v3[4];
-    
+
     // Three different seeds for three hash functions
-    const uint32_t seeds[3] = {0x9E3779B1, 0x85EBCA77, 0xC2B2AE3D};
-    
+    const uint32_t seeds[3] = {0x9E3779B1, 0x517CC1B7, 0x85EBCA6B};
     // Initialize all three sets of accumulators
     // Each uses g[tile.thread_rank()] + their respective seed
     v1[tile.thread_rank()] = g[tile.thread_rank()] + seeds[0];
     v2[tile.thread_rank()] = g[tile.thread_rank()] + seeds[1];
     v3[tile.thread_rank()] = g[tile.thread_rank()] + seeds[2];
-    
+
     uint32_t mask = (len >= 16);
-    
+
     // Initialize results for all three hash functions
     // Uses same logic as your: res = (1 - mask) * (SEED + g[6])
     res1 = (1 - mask) * (seeds[0] + g[6]);
     res2 = (1 - mask) * (seeds[1] + g[6]);
     res3 = (1 - mask) * (seeds[2] + g[6]);
-    
+
     uint32_t j = 0;
-    
-    // Process 16-byte chunks 
+
+    // Process 16-byte chunks
     // Load word once, process through all three hash functions
-    for (; j + 16 <= len; j += 16) {
-        uint32_t word = words[posn];  // Single load from memory
+    for (; j + 16 <= len; j += 16)
+    {
+        uint32_t word = words[posn]; // Single load from memory
         v1[tile.thread_rank()] = round(v1[tile.thread_rank()], word);
         v2[tile.thread_rank()] = round(v2[tile.thread_rank()], word);
         v3[tile.thread_rank()] = round(v3[tile.thread_rank()], word);
         posn += 4;
     }
-    
+
     // Merge accumulators - your exact logic, repeated for each hash
-    if (tile.any(mask) && tile.thread_rank() == 0) {
+    if (tile.any(mask) && tile.thread_rank() == 0)
+    {
         // Hash function 1 merge
         res1 = inst(v1[0], 1);
         res1 += tile.shfl(inst(v1[1], 7), 1);
         res1 += tile.shfl(inst(v1[2], 12), 2);
         res1 += tile.shfl(inst(v1[3], 18), 3);
-        
+
         // Hash function 2 merge
         res2 = inst(v2[0], 1);
         res2 += tile.shfl(inst(v2[1], 7), 1);
         res2 += tile.shfl(inst(v2[2], 12), 2);
         res2 += tile.shfl(inst(v2[3], 18), 3);
-        
+
         // Hash function 3 merge
         res3 = inst(v3[0], 1);
         res3 += tile.shfl(inst(v3[1], 7), 1);
@@ -206,69 +207,72 @@ __device__ void xh332(
         res3 += tile.shfl(inst(v3[3], 18), 3);
     }
     // Process remaining bytes - YOUR EXACT LOGIC, just for three results
-    if (tile.thread_rank() == 0) {
+    if (tile.thread_rank() == 0)
+    {
         // Add length to all three results
         res1 += len;
         res2 += len;
         res3 += len;
-        
+
         uint32_t processed = (len / 16) * 16;
         uint32_t k1;
-        uint32_t i = processed;  // Using your variable name and initialization
-        
+        uint32_t i = processed; // Using your variable name and initialization
+
         // Process remaining 4-byte chunks - your exact for loop structure
-        for (i; (i + 4) <= len; i += 4) {
-            k1 = words[(start + i)/4];
+        for (i; (i + 4) <= len; i += 4)
+        {
+            k1 = words[(start + i) / 4];
             k1 *= g[4];
             k1 = inst(k1, 17);
             k1 *= g[5];
-            
+
             // Apply k1 to all three hash results
             res1 ^= k1;
             res1 = inst(res1, 17) * -g[3] + g[5];
-            
+
             res2 ^= k1;
             res2 = inst(res2, 17) * -g[3] + g[5];
-            
+
             res3 ^= k1;
             res3 = inst(res3, 17) * -g[3] + g[5];
         }
-        
+
         // Process remaining individual bytes
-        while (i < len) {
+        while (i < len)
+        {
             k1 = bytes[start + i] * g[6];
-            
+
             // Apply to all three results
             res1 ^= k1;
             res1 = inst(res1, 11) * -g[3];
-            
+
             res2 ^= k1;
             res2 = inst(res2, 11) * -g[3];
-            
+
             res3 ^= k1;
             res3 = inst(res3, 11) * -g[3];
-            
+
             i++;
         }
-        
+
         // Final avalanche
         res1 ^= res1 >> 15;
         res1 *= g[1];
         res1 ^= res1 >> 13;
         res1 *= g[4];
         res1 ^= res1 >> 16;
-        
+
         res2 ^= res2 >> 15;
         res2 *= g[1];
         res2 ^= res2 >> 13;
         res2 *= g[4];
         res2 ^= res2 >> 16;
-        
+
         res3 ^= res3 >> 15;
         res3 *= g[1];
         res3 ^= res3 >> 13;
         res3 *= g[4];
-        res3 ^= res3 ;
+        res3 ^= res3 >> 16;
     }
 }
 
