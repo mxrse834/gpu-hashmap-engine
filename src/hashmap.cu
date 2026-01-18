@@ -6,7 +6,7 @@
 #include <cuda_runtime.h>
 #include <stdexcept>
 #include <cstdint>
-#include <hash.cuh>
+#include "hash.cuh"
 #define TPB 256
 #define BPG 140
 using namespace std;
@@ -27,20 +27,20 @@ namespace cg = cooperative_groups;
     uint32_t *offset;     // Where in that batch
     uint32_t length;     // How long
 };*/
-struct hashmap_engine
+typedef struct hashmap_engine
 {
-    int n = 4294967296;
-    int o_n = 10000;
+    uint32_t n = 4294967296;
+    uint32_t o_n = 10000;
     // int master_offset_current = 0;
-    int master_byte_current = 0;
-    int *master_bytes;
+    uint32_t master_byte_current = 0;
+    uint32_t *master_bytes=NULL;
     // int *master_offset;
     uint32_t last_offset_val = 0;
     // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
-    int *key;
-    int *value;
-    int *o_key;
-    int *o_value;
+    uint32_t *key=NULL;
+    uint32_t *value=NULL;
+    uint32_t *o_key=NULL;
+    uint32_t *o_value=NULL;
 
     // lets say n is size of our hash table , lets maintain a healthy
     // Kernel: Insert Key-Value Pair into Hash Table (out goal in this part is to generate a key for a specific value to get a key,value pair and store this in our dictionary)
@@ -53,7 +53,7 @@ struct hashmap_engine
                                   uint32_t last_offset_val,
                                   uint32_t master_byte_current)
     {
-        // cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
         // implementation of double buffering into shared memory to deal with waves efficiently
         // inour implementation we have 1 wave = 256*160 = 40960threads( maximum number of threads that can exist on the 40 SM's of 2070 super)
         // above is a example of our current gpu
@@ -67,8 +67,8 @@ struct hashmap_engine
         //    in total we are using 264 bytes out of 12288(12kb).
         // 5) SETUP FOR SINGLE BUFFERING
 
-        // int tid = blockIdx.x * blockDim.x + threadIdx.x;
-        // uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
+        int tid = blockIdx.x * blockDim.x + threadIdx.x;
+        uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
 
         // uint32_t *words = reinterpret_cast<uint32_t *>(byte);
         /*uint32_t *master_vals = (uint32_t *)shmem;
@@ -171,10 +171,10 @@ struct hashmap_engine
     {
         // we need to first apply the 3 hash functions on our input , then we must must calc address ( check overflow buffer also)
         // and probe until we find it , now we return the data associated with it if found
-        /*cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-        cg::thread_block_tile<32> warp = cg::tiled_partition<32>(cg::this_thread_block());
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+        // cg::thread_block_tile<32> warp = cg::tiled_partition<32>(cg::this_thread_block());
         uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
-        uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;*/
+        uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
         for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
         {
             uint32_t results_h1;
@@ -348,9 +348,9 @@ struct hashmap_engine
     {
 
         // Placeholder for delete logic
-        //cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-        //uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
-        //uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+        cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+        uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
+        uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
         for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
         {
             uint32_t results_h1;
@@ -378,50 +378,51 @@ struct hashmap_engine
 
             // 1ST HASH
             //
-            os1 = tile.shfl(os1, 0) // putting in the values of os1 in all 4 threads of a tile
-                  failed = false;
+            bool failed;
+            os1 = tile.shfl(os1, 0); // putting in the values of os1 in all 4 threads of a tile
+            failed = false;
             for (int i = tile.thread_rank(); i < len; i += tile.size())
             {
-                if (tile.any(master_bytes[os1 + i] != qbytes[qoffset + i]))
+                if (tile.any(master_bytes[os1 + i] != qbytes[qoffset[wid] + i]))
                 {
                     failed = true; /// sets any and all tiles in whihc even one tile doesnt have a single matching byte check to true( ie failed)
                 }
             }
             if (tile.thread_rank() == 0 && !failed)
             {
-                keys[results_h1] = -1;
+                key[results_h1] = -1;
             }
 
             // 2ND HASH
             //
-            os2 = tile.shfl(os2, 0) // putting in the values of os1 in all 4 threads of a tile
-                  failed = false;
+            os2 = tile.shfl(os2, 0); // putting in the values of os1 in all 4 threads of a tile
+            failed = false;
             for (int i = tile.thread_rank(); i < len; i += tile.size())
             {
-                if (tile.any(master_bytes[os2 + i] != qbytes[qoffset + i]))
+                if (tile.any(master_bytes[os2 + i] != qbytes[qoffset[wid] + i]))
                 {
                     failed = true; /// sets any and all tiles in whihc even one tile doesnt have a single matching byte check to true( ie failed)
                 }
             }
             if (tile.thread_rank() == 0 && !failed)
             {
-                keys[results_h2] = -1;
+                key[results_h2] = -1;
             }
 
             // 3RD HASH
             //
-            os3 = tile.shfl(os3, 0) // putting in the values of os1 in all 4 threads of a tile
-                  failed = false;
+            os3 = tile.shfl(os3, 0); // putting in the values of os1 in all 4 threads of a tile
+            failed = false;
             for (int i = tile.thread_rank(); i < len; i += tile.size())
             {
-                if (tile.any(master_bytes[os3 + i] != qbytes[qoffset + i]))
+                if (tile.any(master_bytes[os3 + i] != qbytes[qoffset[wid] + i]))
                 {
                     failed = true; /// sets any and all tiles in whihc even one tile doesnt have a single matching byte check to true( ie failed)
                 }
             }
             if (tile.thread_rank() == 0 && !failed)
             {
-                keys[results_h3] = -1;
+                key[results_h3] = -1;
             }
             //
             ///////CODE FOR CHECKING OVERFLOW HASHMAP
@@ -486,9 +487,10 @@ __global__ void lookup_kernel(hashmap_engine *h,
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t wid = tid / 4;
     if (wid >= length_qoffset)
         return;
-    h->lookup_device(h, qbytes, qoffset, length_qoffset, length_qbytes, results);
+    h->lookup_device(qbytes, qoffset, length_qoffset, length_qbytes, results);
 }
 
 //
@@ -506,9 +508,10 @@ __global__ void insert_kernel(hashmap_engine *h,
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    if (wid >= length_qoffset)
+    uint32_t wid = tid / 4;
+    if (wid >= length_offset)
         return;
-    h->insert_device(h, words, offset, data, length_offset, length_bytes, last_offset_val, master_byte_current);
+    h->insert_device(words, offset, data, length_offset, length_bytes, last_offset_val, master_byte_current);
 }
 
 //
@@ -523,8 +526,8 @@ __global__ void delete_kernel(hashmap_engine *h,
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    uint32_t wid = tid / 4;
     if (wid >= length_qoffset)
         return;
-    h->delete_device(h, qbytes, qoffset, length_qoffset, length_qbytes);
+    h->delete_device(qbytes, qoffset, length_qoffset, length_qbytes);
 }
-

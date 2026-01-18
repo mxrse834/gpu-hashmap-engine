@@ -1,4 +1,4 @@
-# GPU HashMap Engine
+# GPU HashMap Engine  
 //consider a future possibility of dual capability of or benchmark cpu vs gpu by running GXhash on cpu and custom gpu or cucollection on gpu
 
 OVERVIEW:
@@ -10,6 +10,13 @@ BUILD INSTRUCTIONS:
 nvcc hashmap.cu -o hm
 ./hm
 ```
+
+
+### APPLICATIONS AIMED TO ADD 
+1) under development : FILE duplication checker 
+
+
+
 
 
 ## Hardware Constraints
