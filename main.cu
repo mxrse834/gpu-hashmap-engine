@@ -47,7 +47,7 @@ bool delete_hashmap()
     delete return true;
 }
 
-bool find_file(char *path, char *file_n, char *output_buffer, size_t output_size)
+bool find_file(char *path, char *file_n)
 {
     DIR *dir = opendir(""); // open current directory
     if (dir == NULL)
@@ -69,7 +69,7 @@ bool find_file(char *path, char *file_n, char *output_buffer, size_t output_size
             continue;
         if (strcmp(entry->d_name, file_n) == 0)
         {
-            snprintf(output_buffer, output_size, "%s", temp_path);
+            // snprintf(output_buffer, output_size, "%s", temp_path);
             closedir(dir);
             return true;
         }
@@ -82,7 +82,63 @@ bool find_file(char *path, char *file_n, char *output_buffer, size_t output_size
     }
     closedir(dir);
 }
+bool parse_path(char *full_path, char *path, char *file)
+{
+    char *p = strrchr(full_path, '/'); // now p points to the "/"
+    if (p)
+    {
+        snprintf(path, PATH_MAX, "%.*s", int(p - full_path), full_path); // to split full_path into path and file (filename)
+        snprintf(file, FILENAME_MAX, "%s", p + 1);
+        return true;
+    }
+    else
+        fprintf(stdout, "INVALID PATH ! expected syntax is like this : \n/file/path/file_name.txt");
+    return false;
+}
+bool file_open(char *full_path)
+{
+    FILE *f = fopen(full_path, "rb");
+    if (!f)
+    {
+        fprintf(stderr, "UNABLE TO OPEN FILE FROM PATH :%s \n", full_path);
+        return false
+    }
+    return true;
+}
+//////////////////////////////////////////////////////////////////////////
+// APPLICATION 1 : FILE DUPLICATION DETECTION USING GPU HASHMAP ENGINE
+/////////////////////////////////////////////////////////////////////////
+// INITIAL INFO :
+// 1) we compare in 16KB CHUNKS
+
 int main()
+{
+    fprintf(stdout, "Give the file name 1 to process: \n");
+    fprintf(stdout, "Give the file name 2 to process: \n");
+    char file1[PATH_MAX]; // meant to store name of first file
+    char file2[PATH_MAX];
+    scanf("%s", file1); // this is expected to bew the file path(full path)
+    scanf("%s", file2);
+    char *f1_path = (char *)malloc(PATH_MAX);
+    char *f1_name = (char *)malloc(FILENAME_MAX);
+    bool okay = true;
+    okay = okay && parse_path(file1, f1_path, f1_name); /// use to parse path to seperate file name and path
+    okay = okay && find_file(f1_path, f1_name);
+    if (!okay)
+        fprintf(stderr, "UNDEFINED ERROR IN FILE CHECK");
+    file_open(file1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
+    // printf("initilizing GPU hashmap engine...\n");
+    init(); // allocate GPU memory for hashmap engine
+    // printf("initialization complete.\n");
+
+
+///////CURRENT /////////////////////separation of file name and path maybe strcspn
+
+    return 0;
+}
+
+// WAS IN MAIN - INITIAL TEST FUNCTION FOR THE HASH
+
 /*{part 1 - setting of const from cpu to gpu
     uint32_t c[7]={(0x9E3779B1+0x85EBCA77),0x85EBCA77,0,-0x9E3779B1,0xC2B2AE3D,0x27D4EB2F,0x165667B1};
                       //g[0]              ,  g[1]    ,   g[2]   ,  g[3]     , g[4]     ,  g[5]    , g[6]
@@ -129,26 +185,3 @@ uint32_t PRIME5 = 0x165667B1   ;*/
     return 0;
 }
 */
-////
-// APPLICATION 1 : FILE DUPLICATION DETECTION USING GPU HASHMAP ENGINE
-////
-// INITIAL INFO :
-// 1) we compare in 16KB CHUNKS
-{
-    fprintf(stdout, "Give the file name 1 to process: \n");
-    fprintf(stdout, "Give the file name 2 to process: \n");
-    char file1[50]; // meant to store name of first file
-    char file2[50];
-    scanf("%s", file1);
-    scanf("%s", file2);
-
-    // printf("initilizing GPU hashmap engine...\n");
-    init(); // allocate GPU memory for hashmap engine
-    // printf("initialization complete.\n");
-
-/////////////////////separation of file name and path maybe strcspn 
-
-
-    find_file();
-    return 0;
-}
