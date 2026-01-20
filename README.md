@@ -332,3 +332,11 @@ also use the manual method to inc shared memory from 48 to 64
 10) besides the offset why dont we add first m bytes of the actual value to check for a simpler check
 
 11) sawp the tile.any() checks with ballots + __ffs or butterfly reduction ( check feasiblity since tile.any() has unecessary iterations)
+
+***
+Struct must exist on CPU first — for initialization.
+
+Any pointers inside the struct must point to GPU memory before copying.
+
+Copy the struct itself to GPU with cudaMalloc + cudaMemcpy
+***

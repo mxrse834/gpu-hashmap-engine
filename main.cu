@@ -30,24 +30,55 @@ void init()
     cudaMalloc(&p.o_value, sizeof(size / 2));
 }
 // THE INIT FUNCTION ALLOWS US TO ALLOCATE MEMORY FOR THE ELEMENTS OF THE STRUCT ON THE DEVICE SIDE CHNAGES WITH RESPECT TO AVAILABLE MEMORY
-bool input_hashmap()
+void input_hashmap(hashmap_engine *h,
+                   uint32_t *words,
+                   uint32_t *offset,
+                   uint32_t *data,
+                   uint32_t length_offset,
+                   uint32_t length_bytes,
+                   uint32_t last_offset_val,
+                   uint32_t master_byte_current)
 {
 
-    insert_kernel<<<TPB, BPG>>>();
-    return true;
+    insert_kernel<<<TPB, BPG>>>(h,
+                                words,
+                                offset,
+                                data,
+                                length_offset,
+                                length_bytes,
+                                last_offset_val,
+                                master_byte_current);
 }
 
-bool lookup_hashmap()
+void lookup_hashmap(hashmap_engine *h,
+                    uint8_t *qbytes,
+                    uint32_t *qoffset,
+                    uint32_t length_qoffset,
+                    uint32_t length_qbytes,
+                    uint32_t *results)
 {
-    lookup_kernel return true;
+    lookup_kernel<<<TPB, BPG>>>(h,
+                                qbytes,
+                                qoffset,
+                                length_qoffset,
+                                length_qbytes,
+                                results);
 }
 
-bool delete_hashmap()
+void delete_hashmap(hashmap_engine *h,
+                    uint8_t *qbytes,
+                    uint32_t *qoffset,
+                    uint32_t length_qoffset,
+                    uint32_t length_qbytes)
 {
-    delete return true;
+    delete_kernel<<<TPB, BPG>>>(h,
+                                qbytes,
+                                qoffset,
+                                length_qoffset,
+                                length_qbytes);
 }
 
-bool find_file(char *path, char *file_n)
+bool find_file(char *path, char *file_n, off_t file_size)
 {
     DIR *dir = opendir(""); // open current directory
     if (dir == NULL)
@@ -67,8 +98,10 @@ bool find_file(char *path, char *file_n)
             continue;
         if (!S_ISREG(stat_ent.st_mode))
             continue;
+
         if (strcmp(entry->d_name, file_n) == 0)
         {
+            file_size = stat_ent.st_size;
             // snprintf(output_buffer, output_size, "%s", temp_path);
             closedir(dir);
             return true;
@@ -95,21 +128,26 @@ bool parse_path(char *full_path, char *path, char *file)
         fprintf(stdout, "INVALID PATH ! expected syntax is like this : \n/file/path/file_name.txt");
     return false;
 }
-bool file_open(char *full_path)
+bool file_open(char *full_path, FILE *f)
 {
-    FILE *f = fopen(full_path, "rb");
+    f = fopen(full_path, "rb");
     if (!f)
     {
         fprintf(stderr, "UNABLE TO OPEN FILE FROM PATH :%s \n", full_path);
-        return false
+        return false;
     }
     return true;
+}
+bool file_read(FILE *f, uint32_t *output_buffer, off_t file_size)
+{
+    return (file_size == fread(output_buffer, sizeof(uint8_t), file_size, f)) /// file size is numberof bytes (got it from stat())
+    // the copy might lead to <4 bytes not being copied back
 }
 //////////////////////////////////////////////////////////////////////////
 // APPLICATION 1 : FILE DUPLICATION DETECTION USING GPU HASHMAP ENGINE
 /////////////////////////////////////////////////////////////////////////
 // INITIAL INFO :
-// 1) we compare in 16KB CHUNKS
+// 1) we compare in 32 byte CHUNKS
 
 int main()
 {
@@ -117,23 +155,40 @@ int main()
     fprintf(stdout, "Give the file name 2 to process: \n");
     char file1[PATH_MAX]; // meant to store name of first file
     char file2[PATH_MAX];
+    uint32_t padreq;
     scanf("%s", file1); // this is expected to bew the file path(full path)
     scanf("%s", file2);
     char *f1_path = (char *)malloc(PATH_MAX);
     char *f1_name = (char *)malloc(FILENAME_MAX);
+    off_t file_size1;
     bool okay = true;
     okay = okay && parse_path(file1, f1_path, f1_name); /// use to parse path to seperate file name and path
-    okay = okay && find_file(f1_path, f1_name);
+    okay = okay && find_file(f1_path, f1_name, file_size1);
     if (!okay)
         fprintf(stderr, "UNDEFINED ERROR IN FILE CHECK");
-    file_open(file1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
-    // printf("initilizing GPU hashmap engine...\n");
+    FILE *f1;
+    file_open(file1, f1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
+
+    /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
+    off_t padding = (padreq + 3) & ~3;                                          // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
+    uint32_t *file1_buffer = (uint32_t *)calloc(padding / 4, sizeof(uint32_t)); // USING CALLOC due to '0' init instead of garbage values
+    uint32_t *file1_buffer_offset = (uint32_t *)calloc((padding - 1 /*+16*/ / 16) + 2, sizeof(uint32_t));
+    uint32_t *gfile1_buffer;
+    uint32_t *gfile1_buffer_offset;
+    cudaMalloc(&gfile1_buffer, sizeof(padding));
+    cudaMalloc(&gfile1_buffer_offset, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
+    cudaMemcpy(gfile1_buffer, file1_buffer, sizeof(padding), cudaMemcpyHostToDevice);
+    // lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
+    
+//---------------------------> allocate struct on gpu (weve alr decalred it on cpu) , then allocate its members of the strust on gpu , then do a cuda memcopy
+
+    file_read(f1, file1_buffer, file_size1);
+
+    /// INIT FR HASHMAP
+    printf("initilizing GPU hashmap engine...\n");
     init(); // allocate GPU memory for hashmap engine
-    // printf("initialization complete.\n");
-
-
-///////CURRENT /////////////////////separation of file name and path maybe strcspn
-
+    printf("initialization complete.\n");
+    input_hashmap()
     return 0;
 }
 
