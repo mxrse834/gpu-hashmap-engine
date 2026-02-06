@@ -7,14 +7,14 @@
 #include <cuda_runtime.h>
 #include <limits.h>
 
-#include "hashmap.cuh"
-#include "hash.cuh"
+#include "include/hashmap.cuh"
+#include "include/hash.cuh"
 using namespace std;
 
 //  the main idea is to have our typedef struct hashmap_engine instance on the host side
 //  and all its corresponding elements on the device side
 // PRIMARY REASON : cudaMalloc requires a host pointer to allocate memory on the device side
-void init()
+void init(hashmap_engine *g)
 {
     size_t freemem, totalmem;
     cudaMemGetInfo(&freemem, &totalmem);
@@ -24,10 +24,15 @@ void init()
     size_t size = memavail / 4;
     hashmap_engine p; // we are declaring a hashmap engine instance on the host
     cudaMalloc(&p.master_bytes, sizeof(size));
-    cudaMalloc(&p.key, sizeof(size));
-    cudaMalloc(&p.value, sizeof(size));
-    cudaMalloc(&p.o_key, sizeof(size / 2));
-    cudaMalloc(&p.o_value, sizeof(size / 2));
+    cudaMalloc(&p.key, size);
+    cudaMalloc(&p.value, size);
+    cudaMalloc(&p.o_key, size/ 2);
+    cudaMalloc(&p.o_value, size/2);
+    cudaMalloc(&g, sizeof(hashmap_engine));
+    cudaMemcpy(g, &p, sizeof(hashmap_engine), cudaMemcpyHostToDevice);
+    /* set all entries to -1 (0xFFFFFFFF as bytes) */
+    cudaMemset(p.key, 0xFF, size);
+    cudaMemset(p.o_key, 0xFF, size/2);
 }
 // THE INIT FUNCTION ALLOWS US TO ALLOCATE MEMORY FOR THE ELEMENTS OF THE STRUCT ON THE DEVICE SIDE CHNAGES WITH RESPECT TO AVAILABLE MEMORY
 void input_hashmap(hashmap_engine *h,
@@ -84,7 +89,7 @@ bool find_file(char *path, char *file_n, off_t file_size)
     if (dir == NULL)
     {
         printf("Could not open directory: %s\n", path);
-        return;
+        return false;
     }
     struct dirent *entry;
     while ((entry = readdir(dir)) != NULL)
@@ -114,6 +119,7 @@ bool find_file(char *path, char *file_n, off_t file_size)
         }
     }
     closedir(dir);
+    return false;
 }
 bool parse_path(char *full_path, char *path, char *file)
 {
@@ -128,9 +134,9 @@ bool parse_path(char *full_path, char *path, char *file)
         fprintf(stdout, "INVALID PATH ! expected syntax is like this : \n/file/path/file_name.txt");
     return false;
 }
-bool file_open(char *full_path, FILE *f)
+bool file_open(char *full_path, FILE **f)
 {
-    f = fopen(full_path, "rb");
+    *f = fopen(full_path, "rb");
     if (!f)
     {
         fprintf(stderr, "UNABLE TO OPEN FILE FROM PATH :%s \n", full_path);
@@ -138,9 +144,9 @@ bool file_open(char *full_path, FILE *f)
     }
     return true;
 }
-bool file_read(FILE *f, uint32_t *output_buffer, off_t file_size)
+bool file_read(FILE **f, void *output_buffer, off_t file_size)
 {
-    return (file_size == fread(output_buffer, sizeof(uint8_t), file_size, f)) /// file size is numberof bytes (got it from stat())
+    return (file_size == fread(output_buffer, sizeof(uint8_t), file_size, *f)); /// file size is numberof bytes (got it from stat())
     // the copy might lead to <4 bytes not being copied back
 }
 //////////////////////////////////////////////////////////////////////////
@@ -155,7 +161,7 @@ int main()
     fprintf(stdout, "Give the file name 2 to process: \n");
     char file1[PATH_MAX]; // meant to store name of first file
     char file2[PATH_MAX];
-    uint32_t padreq;
+    // uint32_t padreq;
     scanf("%s", file1); // this is expected to bew the file path(full path)
     scanf("%s", file2);
     char *f1_path = (char *)malloc(PATH_MAX);
@@ -167,29 +173,75 @@ int main()
     if (!okay)
         fprintf(stderr, "UNDEFINED ERROR IN FILE CHECK");
     FILE *f1;
-    file_open(file1, f1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
+    file_open(file1, &f1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
 
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
-    off_t padding = (padreq + 3) & ~3;                                          // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
+    off_t padding = (file_size1 + 3) & ~3;                                      // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     uint32_t *file1_buffer = (uint32_t *)calloc(padding / 4, sizeof(uint32_t)); // USING CALLOC due to '0' init instead of garbage values
+    if (!file_read(&f1, file1_buffer, file_size1))
+        return false;
     uint32_t *file1_buffer_offset = (uint32_t *)calloc((padding - 1 /*+16*/ / 16) + 2, sizeof(uint32_t));
     uint32_t *gfile1_buffer;
     uint32_t *gfile1_buffer_offset;
     cudaMalloc(&gfile1_buffer, sizeof(padding));
     cudaMalloc(&gfile1_buffer_offset, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
     cudaMemcpy(gfile1_buffer, file1_buffer, sizeof(padding), cudaMemcpyHostToDevice);
-    // lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
-    
-//---------------------------> allocate struct on gpu (weve alr decalred it on cpu) , then allocate its members of the strust on gpu , then do a cuda memcopy
 
-    file_read(f1, file1_buffer, file_size1);
+    // ******lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
 
-    /// INIT FR HASHMAP
+    /// INIT HASHMAP
     printf("initilizing GPU hashmap engine...\n");
-    init(); // allocate GPU memory for hashmap engine
+    hashmap_engine *g;
+    init(g); // allocate GPU memory for hashmap engine
     printf("initialization complete.\n");
-    input_hashmap()
-    return 0;
+
+    // USELESS CUDA MALLOC FOR DATA IN THIS CASE SO WE JUST DO THE FOLLOWING:
+    uint32_t *data;
+    cudaMalloc(&data, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
+    cudaMemset(&data, 0, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
+
+    input_hashmap(g,
+                  gfile1_buffer,
+                  gfile1_buffer_offset,
+                  data,
+                  (padding - 1) / 16 + 2,
+                  padding,
+                  0,
+                  0); // passing file1 thru our hash function and storing it in out hashtable
+
+    // ideally next step would to to do a lookup using the second file
+    char *f2_path = (char *)malloc(PATH_MAX);
+    char *f2_name = (char *)malloc(FILENAME_MAX);
+    off_t file_size2;
+    okay = true;
+    okay = okay && parse_path(file1, f1_path, f1_name); /// use to parse path to seperate file name and path
+    okay = okay && find_file(f1_path, f1_name, file_size2);
+    if (!okay)
+        fprintf(stderr, "UNDEFINED ERROR IN FILE CHECK");
+    FILE *f2;
+    file_open(file2, &f2); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
+
+    /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
+    padding = (file_size2 + 3) & ~3;                                          // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
+    uint8_t *file2_buffer = (uint8_t *)calloc(padding / 4, sizeof(uint32_t)); // USING CALLOC due to '0' init instead of garbage values
+    if (!file_read(&f2, file2_buffer, file_size2))
+        return false;
+    uint32_t *file2_buffer_offset = (uint32_t *)calloc((padding - 1 /*+16*/ / 16) + 2, sizeof(uint32_t));
+    uint8_t *gfile2_buffer; // as opposed to gfile1_buffer this is byte inedexed**
+    uint32_t *gfile2_buffer_offset;
+    cudaMalloc(&gfile2_buffer, sizeof(padding));
+    cudaMalloc(&gfile2_buffer_offset, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
+    cudaMemcpy(gfile2_buffer, file2_buffer, sizeof(padding), cudaMemcpyHostToDevice);
+
+    // out data is useless its 0-byte padded accordingly results is also usless :(
+    uint32_t *results;
+    cudaMalloc(&results, sizeof((((padding - 1) /*+16*/ / 16) + 2) * sizeof(uint32_t)));
+    lookup_hashmap(g,
+                   gfile2_buffer,
+                   gfile2_buffer_offset,
+                   (padding - 1) / 16 + 2,
+                   padding,
+                   results);
 }
 
 // WAS IN MAIN - INITIAL TEST FUNCTION FOR THE HASH

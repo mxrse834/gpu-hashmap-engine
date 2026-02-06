@@ -1,10 +1,8 @@
-// attempt to port a modified 32 bit xxhash on gpu
-// coop grps , shf_sync , ballot_sync
-// NOTES -
-// 1) bit associativity calc was a massive fail
-// 2) later we wanna tweak the program to launch 2 diff kernels for for lebght greater than 16 and one for lesser than 16
+// Experimental CUDA port of 32-bit XXHash.
+// Heavily modified — correctness and faithfulness to the original are questionable :D
 
-// We have 3 options for calculations -
+////////////////////////// HASHING STRATEGIES //////////////////////////
+
 // 1)
 //  ============================================================================
 //  STRATEGY 1: MAXIMUM BATCH PARALLELISM (BEST FOR MANY STRINGS)
@@ -29,7 +27,8 @@
 //  Parallelism: Thousands of threads work on same string
 //  ============================================================================
 
-/*CPU PSEUDOCODE
+/*
+CPU PSEUDOCODE(roughly what we will be following on GPU)
 
 Step 1:initialize counter
 if length >= 16:
@@ -95,6 +94,8 @@ acc = acc ^ (acc >> 16)
 
 
 */
+
+/// GPU IMPLEMENTATION
 #include <hash.cuh>
 #include <iostream>
 #include <cuda_runtime.h>
@@ -136,6 +137,9 @@ __device__ __forceinline__ uint32_t round(uint32_t r, uint32_t w)
 __device__ void xh332(
     uint8_t *bytes,
     uint32_t tid,
+    uint32_t start,
+    uint32_t len,
+    uint32_t posn,
     uint32_t wid,
     uint32_t *offset,
     uint32_t *words,
@@ -149,9 +153,9 @@ __device__ void xh332(
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     // uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;
     // uint32_t local_wid=(i+threadIdx.x)/4;
-    uint32_t start = offset[wid];
+    /*uint32_t start = offset[wid];
     uint32_t len = offset[wid + 1] - start;
-    uint32_t posn = (start / 4) + tile.thread_rank();
+    uint32_t posn = (start / 4) + tile.thread_rank();*/
 
     // Three sets of accumulators - one per hash function
     uint32_t v1[4], v2[4], v3[4];
@@ -178,7 +182,10 @@ __device__ void xh332(
     // Load word once, process through all three hash functions
     for (; j + 16 <= len; j += 16)
     {
-        uint32_t word = words[posn]; // Single load from memory
+        uint32_t word = 0;
+        // guard against out-of-bounds word access
+        uint32_t words_count = (length_bytes + 3) / 4;
+        if (posn < words_count) word = words[posn];
         v1[tile.thread_rank()] = round(v1[tile.thread_rank()], word);
         v2[tile.thread_rank()] = round(v2[tile.thread_rank()], word);
         v3[tile.thread_rank()] = round(v3[tile.thread_rank()], word);
@@ -221,7 +228,10 @@ __device__ void xh332(
         // Process remaining 4-byte chunks - your exact for loop structure
         for (i; (i + 4) <= len; i += 4)
         {
-            k1 = words[(start + i) / 4];
+            uint32_t idx = (start + i) / 4;
+            uint32_t words_count = (length_bytes + 3) / 4;
+            if (idx < words_count) k1 = words[idx];
+            else k1 = 0;
             k1 *= g[4];
             k1 = inst(k1, 17);
             k1 *= g[5];

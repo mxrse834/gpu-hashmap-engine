@@ -7,8 +7,8 @@
 #include <stdexcept>
 #include <cstdint>
 #include "hash.cuh"
-#define TPB 256
-#define BPG 140
+#define TPB 1024     ///threads per block 256
+#define BPG 35     ///blocks per grid 140
 using namespace std;
 namespace cg = cooperative_groups;
 
@@ -29,18 +29,18 @@ namespace cg = cooperative_groups;
 };*/
 typedef struct hashmap_engine
 {
-    uint32_t n = 4294967296;
+    uint32_t n = 4294967292;
     uint32_t o_n = 10000;
     // int master_offset_current = 0;
     uint32_t master_byte_current = 0;
-    uint32_t *master_bytes=NULL;
+    uint8_t *master_bytes = NULL;
     // int *master_offset;
     uint32_t last_offset_val = 0;
     // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
-    uint32_t *key=NULL;
-    uint32_t *value=NULL;
-    uint32_t *o_key=NULL;
-    uint32_t *o_value=NULL;
+    uint32_t *key = NULL;
+    uint32_t *value = NULL;
+    uint32_t *o_key = NULL;
+    uint32_t *o_value = NULL;
 
     // lets say n is size of our hash table , lets maintain a healthy
     // Kernel: Insert Key-Value Pair into Hash Table (out goal in this part is to generate a key for a specific value to get a key,value pair and store this in our dictionary)
@@ -69,7 +69,6 @@ typedef struct hashmap_engine
 
         int tid = blockIdx.x * blockDim.x + threadIdx.x;
         uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
-
         // uint32_t *words = reinterpret_cast<uint32_t *>(byte);
         /*uint32_t *master_vals = (uint32_t *)shmem;
         master_vals[0] = master_byte_currentv;
@@ -81,6 +80,9 @@ typedef struct hashmap_engine
         uint32_t *offset = (uint32_t *)(words + (length_bytes / 4));*/
         for (uint32_t wid = tid / 4; wid < length_offset; wid += (gridDim.x * blockDim.x) / 4)
         {
+            uint32_t start = offset[wid];
+            uint32_t len = offset[wid + 1] - start;
+            uint32_t posn = (start / 4) + tile.thread_rank();
 
             uint32_t results_h1;
             uint32_t results_h2;
@@ -88,13 +90,18 @@ typedef struct hashmap_engine
             // calling the custom hashing function from the included hash.cuh file
             xh332(
                 bytes,
-                tid, wid,
+                tid, start, len, posn, wid,
                 offset, words,
                 results_h1,
                 results_h2,
                 results_h3,
                 length_bytes,
                 length_offset);
+
+            // Reduce raw 32-bit hashes into table index range
+            results_h1 = results_h1 % n;
+            results_h2 = results_h2 % n;
+            results_h3 = results_h3 % n;
 
             // each thread takes up one string to copy into the master bytes
 
@@ -104,7 +111,7 @@ typedef struct hashmap_engine
                 uint32_t tile_no = tile.thread_rank();
                 for (int i = tile_no; i < len; i = i + 4)
                 {
-                    master_bytes[master_byte_current + editaT + i + 1] = bytes[start + i]; // CODE FOR COPYING INTO MASTERBYTE
+                    master_bytes[master_byte_current + editaT + i] = bytes[start + i]; // CODE FOR COPYING INTO MASTERBYTE
                 }
                 //(each wid : one offset)
                 /*if (tile_no == 0)
@@ -141,7 +148,7 @@ typedef struct hashmap_engine
                 for (int i = 0; i < o_n; i++)
                 {
                     int idx = (overflow_slot + i) % o_n; //  the for loop over "i" allows for linear probing
-                    if (atomicCAS(&o_key[idx], -1, words[wid]) == -1)
+                    if (atomicCAS(&o_key[idx], -1, last_offset_val + offset[wid]) == -1)
                     {
                         o_value[idx] = data[wid];
                         break;
@@ -175,8 +182,11 @@ typedef struct hashmap_engine
         // cg::thread_block_tile<32> warp = cg::tiled_partition<32>(cg::this_thread_block());
         uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
         uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-        for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
+        for (uint wid = tid / 4; wid < length_qoffset; wid += (blockDim.x * gridDim.x) / 4)
         {
+            uint32_t start = qoffset[wid];
+            uint32_t len = qoffset[wid + 1] - start;
+            uint32_t posn = (start / 4) + tile.thread_rank();
             uint32_t results_h1;
             uint32_t results_h2;
             uint32_t results_h3;
@@ -185,13 +195,17 @@ typedef struct hashmap_engine
             uint32_t os3;
             xh332(
                 qbytes,
-                tid, wid,
+                tid, start, len, posn, wid,
                 qoffset, qwords,
                 results_h1,
                 results_h2,
                 results_h3,
                 length_qbytes,
                 length_qoffset);
+            // Ensure hash indices are within primary table bounds
+            results_h1 = results_h1 % n;
+            results_h2 = results_h2 % n;
+            results_h3 = results_h3 % n;
             // now we have each thread_rank==0 holding three variables namely results_h1,results_h2,results_h3
             // once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
             if (tile.thread_rank() == 0)
@@ -276,8 +290,7 @@ typedef struct hashmap_engine
             }
             // osb = tile.shfl(osb, 0); /// osb is the base offset value in the real master bytes array per tile
             overflow_slot = tile.shfl(overflow_slot, 0);
-            int l = 0;
-            for (l; l < 50; l++)
+            for (int l = 0; l < 50; l++)
             {
                 failed = false;
                 if (tile.thread_rank() == 0)
@@ -287,20 +300,21 @@ typedef struct hashmap_engine
                 osb = tile.shfl(osb, 0);
                 if (osb == -1)
                     break;
-                for (int i = tile.thread_rank(); i < len; i += tile.size()) ////----------------------------->> FOR BENCHMARKING PURPOSES TRY TBOTH THE COMMENTED METHOD AND THE CURRENT ONE
+                for (int i = tile.thread_rank(); i < len; i += tile.size())
                 {
-                    uint32_t mask = tile.ballot(master_bytes[osb + i] == qbytes[qoffset[wid] + i]);
-                    if (mask != 0xF) // will check if mask is set ie if all 4 threads in a tile finding matching bytes
+                    if (master_bytes[osb + i] != qbytes[qoffset[wid] + i])
                     {
                         failed = true;
                         break;
                     }
                 }
-            }
-            if (!failed)
-            {
-                if (tile.thread_rank() == 0)
-                    results[wid] = o_value[(overflow_slot + l) % o_n];
+                failed = tile.any(failed);
+                if (!failed)
+                {
+                    if (tile.thread_rank() == 0)
+                        results[wid] = o_value[(overflow_slot + l) % o_n];
+                    break;
+                }
             }
             /*
            for (int l = 0; l < 50; l++)
@@ -351,8 +365,11 @@ typedef struct hashmap_engine
         cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
         uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
         uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-        for (uint wid = tid / 4; wid < length_qoffset; wid += blockDim.x * gridDim.x)
+        for (uint wid = tid / 4; wid < length_qoffset; wid += (blockDim.x * gridDim.x) / 4)
         {
+            uint32_t start = qoffset[wid];
+            uint32_t len = qoffset[wid + 1] - start;
+            uint32_t posn = (start / 4) + tile.thread_rank();
             uint32_t results_h1;
             uint32_t results_h2;
             uint32_t results_h3;
@@ -361,7 +378,7 @@ typedef struct hashmap_engine
             uint32_t os3;
             xh332(
                 qbytes,
-                tid, wid,
+                tid, start, len, posn, wid,
                 qoffset, qwords,
                 results_h1,
                 results_h2,
@@ -437,7 +454,7 @@ typedef struct hashmap_engine
             }
             // osb = tile.shfl(osb, 0); /// osb is the base offset value in the real master bytes array per tile
             overflow_slot = tile.shfl(overflow_slot, 0);
-            int failed;
+            // int failed;
             for (int l = 0; l < 50; l++)
             {
                 failed = false;
@@ -472,7 +489,7 @@ typedef struct hashmap_engine
             }
         }
     }
-};
+} hashmap_engine;
 
 //
 ////LOOKUP KERNEL -> lookup_device

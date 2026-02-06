@@ -1,76 +1,36 @@
 # GPU HashMap Engine  
-//consider a future possibility of dual capability of or benchmark cpu vs gpu by running GXhash on cpu and custom gpu or cucollection on gpu
 
 OVERVIEW:
 - Batch Insertions & Lookups of key-value pairs in parallel relying majorly on GPU
 
-
 BUILD INSTRUCTIONS:
-```bash
-nvcc hashmap.cu -o hm
-./hm
-```
+
+
+###PERMISSIBLE WARNINGS (per se, no really per se) :
+1) warning #68-D: integer conversion resulted in a change of sign
+                      if (atomicCAS(&o_key[idx], -1, words[wid]) == -1) ------> -1 is rounded to 2^32 -1 (made unsigned) as CAS only takes +ve values
+2) src/hashmap.cu(288): warning #68-D: integer conversion resulted in a change of sign
+                  if (osb == -1) --------------> same as above 
 
 
 ### APPLICATIONS AIMED TO ADD 
 1) under development : FILE duplication checker 
-
-
-
+2) general structural hashmap
+3) -
 
 
 ## Hardware Constraints
+Currently using a RTX 2070 Super for all benchmarks and as a baseline, please take performance limitations into consideration.
+In particular: TPB and BPG definitions @src/hashmap.cu are as per my gpu (can change as per urs)
 
-Currently using a RTX 2070 Super for all bencmarks and as a baseline, please take performance limitations in mind.
-
-To maximize efficiency, I'm focusing on optimizing **4 core metrics**:
+To maximize efficiency, im focusing on optimizing **4 core metrics**:
 
 1. **Hashing Function** - Generate IDs as unique as possible with minimal collisions
 2. **Index Calculation/Hash Table** - Efficient parallel data structure for storage and retrieval
-3. **Collision Handling** - System to resolve hash conflicts efficiently
-4. **Dynamic Resizing** - Automatically scale storage as key-value pairs increase
 
+3. **Collision Handling** - System to resolve hash conflicts efficiently (currently we are expermienting on a  variation of cuckoo hashing utlizing 3 different SEEDS
 
-**Analysis**: 
-
-### Debugging Tools Integration
-
-**compute-sanitizer Integration:**
-/opt/cuda/bin/compute-sanitizer ./hm
-========= COMPUTE-SANITIZER
-GPU HashMap Engine - CUDA Kernel Skeleton Initialized
-...
-========= ERROR SUMMARY: 0 errors
-
-
-**What compute-sanitizer detects:**
-1. **Memory access errors** → Out-of-bounds access
-2. **Race conditions** → Simultaneous memory modifications
-3. **API errors** → CUDA runtime/driver misuse
-
-## Current Status: Version 2 Complete 
-
-### Working Features
-- **Batch Insertion**: Parallel hash table population using linear probing
-- **Collision Resolution**: Atomic `atomicCAS` operations prevent race conditions  
-- **Parallel Lookup**: Multi-threaded search with proper bounds checking
-- **Dynamic Input**: User can search for any number of elements
-- **Memory Efficiency**: DMA-based initialization, proper cleanup
-- **Error Handling**: Robust input validation and memory management
-- **Not Found Detection**: Proper handling of missing elements
-
-### Performance Characteristics
-- **Hash Function**: `value % table_size` (simple but collision-prone)
-- **Collision Resolution**: Linear probing with atomic synchronization
-- **Memory Access**: Coalesced for optimal bandwidth utilization  
-- **Thread Efficiency**: Minimal warp divergence in insertion/lookup loops
-- **Space Complexity**: O(n) hash table + O(search_count) auxiliary arrays
-
-### Current Limitations
-1. **Fixed Hash Table Size**: Currently hardcoded to 8 elements
-2. **Simple Hash Function**: Modulo operation creates clustering  
-3. **Linear Probing Overhead**: Performance degrades with high collision rates
-4. **No Dynamic Resizing**: Cannot grow hash table at runtime
+4. **Dynamic Resizing** - Automatically scale storage as key-value pairs increase   // NOT IMPLEMENTED YET WERE LIMITED TO four billion two hundred ninety-four million nine hundred sixty-seven thousand two hundred ninety-two (have fun reading that(sorry , here you go - 4294967292))
 
 
 WHAT WE WANT TO ACHIVE AT THE END:
