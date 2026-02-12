@@ -1,4 +1,8 @@
 # GPU HashMap Engine  
+/*okay now ill  try to fix the errros u pointed out, lets see what im able to do . all the problems i dont list here assume that ive triedmy best to fix them , so just debug and see if ive gona abt it right or not , other i specify here are some i have doubts in pls clarify those then ill try to fix them . 1.4) this shudnt be a problem since im allocating in the init function even if its garbage for now , 1.5)  doesnt seem to be a problem im setting it in find_file(),1.7)check now ,2.2)ignore for now 3.1)YES i definitely want to add this stuff ,give me a elborate start on debugging in cuda (more liek error checking),3.2)done ,3.3)check this again now ,3.4)check again now ,4.1)ignore for now 4.2)yes thats my bad (just somne micro optimztion tho) 4.3)yes fragile but okay , 5.1)now? ,5.2,5.4)leave for now , 5.5) explain in detail what u think the problem is i dont see anythign off :( , 5.6)is there anyway to do like a whichever is firest to edit it shud edit and other can just not do it ( liek fastest wins)(not atomic in atomic everyone gest to make a change here i want only first)*/
+
+/home/pnglinkpc/cuda/gpu-hashmap-engine/testfile1.bin
+/home/pnglinkpc/cuda/gpu-hashmap-engine/testfile2.bin
 
 OVERVIEW:
 - Batch Insertions & Lookups of key-value pairs in parallel relying majorly on GPU

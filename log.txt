@@ -1,0 +1,481 @@
+========= COMPUTE-SANITIZER
+Give the file name 1 to process: 
+Give the file name 2 to process: 
+initilizing GPU hashmap engine...
+initialization complete.
+123========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (12,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a10 is out of bounds
+=========     and is 1 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (13,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a10 is out of bounds
+=========     and is 1 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (14,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a10 is out of bounds
+=========     and is 1 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (15,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a10 is out of bounds
+=========     and is 1 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (16,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a14 is out of bounds
+=========     and is 5 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (17,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a14 is out of bounds
+=========     and is 5 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (18,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a14 is out of bounds
+=========     and is 5 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (19,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a14 is out of bounds
+=========     and is 5 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (20,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a18 is out of bounds
+=========     and is 9 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (21,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a18 is out of bounds
+=========     and is 9 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (22,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a18 is out of bounds
+=========     and is 9 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (23,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a18 is out of bounds
+=========     and is 9 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (24,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a1c is out of bounds
+=========     and is 13 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (25,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a1c is out of bounds
+=========     and is 13 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (26,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a1c is out of bounds
+=========     and is 13 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (27,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a1c is out of bounds
+=========     and is 13 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (28,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a20 is out of bounds
+=========     and is 17 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (29,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a20 is out of bounds
+=========     and is 17 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (30,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a20 is out of bounds
+=========     and is 17 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (31,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a20 is out of bounds
+=========     and is 17 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (32,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a24 is out of bounds
+=========     and is 21 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (33,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a24 is out of bounds
+=========     and is 21 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (34,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a24 is out of bounds
+=========     and is 21 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (35,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a24 is out of bounds
+=========     and is 21 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (36,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a28 is out of bounds
+=========     and is 25 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (37,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a28 is out of bounds
+=========     and is 25 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (38,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a28 is out of bounds
+=========     and is 25 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (39,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a28 is out of bounds
+=========     and is 25 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (40,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a2c is out of bounds
+=========     and is 29 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (41,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a2c is out of bounds
+=========     and is 29 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (42,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a2c is out of bounds
+=========     and is 29 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (43,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a2c is out of bounds
+=========     and is 29 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (44,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a30 is out of bounds
+=========     and is 33 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (45,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a30 is out of bounds
+=========     and is 33 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (46,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a30 is out of bounds
+=========     and is 33 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (47,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a30 is out of bounds
+=========     and is 33 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (48,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a34 is out of bounds
+=========     and is 37 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (49,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a34 is out of bounds
+=========     and is 37 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (50,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a34 is out of bounds
+=========     and is 37 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (51,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a34 is out of bounds
+=========     and is 37 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (52,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a38 is out of bounds
+=========     and is 41 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (53,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a38 is out of bounds
+=========     and is 41 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (54,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a38 is out of bounds
+=========     and is 41 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (55,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a38 is out of bounds
+=========     and is 41 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (56,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a3c is out of bounds
+=========     and is 45 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (57,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a3c is out of bounds
+=========     and is 45 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (58,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a3c is out of bounds
+=========     and is 45 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (59,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a3c is out of bounds
+=========     and is 45 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (60,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a40 is out of bounds
+=========     and is 49 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (61,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a40 is out of bounds
+=========     and is 49 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (62,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a40 is out of bounds
+=========     and is 49 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Invalid __global__ read of size 4 bytes
+=========     at lookup_kernel(hashmap_engine *, unsigned char *, unsigned int *, unsigned int, unsigned int, unsigned int *)+0x1e0
+=========     by thread (63,0,0) in block (0,0,0)
+=========     Access to 0x7f339b000a40 is out of bounds
+=========     and is 49 bytes after the nearest allocation at 0x7f339b000a00 of size 16 bytes
+=========     Saved host backtrace up to driver entry point at kernel launch time
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:80 [0xa211] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Program hit cudaErrorLaunchFailure (error 719) due to "unspecified launch failure" on CUDA API call to cudaDeviceSynchronize.
+=========     Saved host backtrace up to driver entry point at error
+=========         Host Frame: lookup_hashmap(hashmap_engine*, unsigned char*, unsigned int*, unsigned int, unsigned int, unsigned int*) in main.cu:86 [0xa265] in gpu-hashmap
+=========         Host Frame: main in main.cu:281 [0xaf88] in gpu-hashmap
+========= 
+========= Error: process didn't terminate successfully
+========= Target application returned an error
+========= ERROR SUMMARY: 53 errors

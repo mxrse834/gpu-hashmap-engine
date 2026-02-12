@@ -106,12 +106,12 @@ using namespace std;
 #define TPB 1024
 #define SEED 0
 namespace cg = cooperative_groups;
-#define P1 2246822519;
+/*#define P1 2246822519;
 #define P2 3266489917;
 #define P3 4294967296;
 #define P4 668265263;
 #define P5 374761393;
-
+*/
 /*__device__ __forceinline__ uint32_t inst(uint32_t x,int s)
 {
     return __funnelshift_l(x,x,s);
@@ -226,7 +226,7 @@ __device__ void xh332(
         uint32_t i = processed; // Using your variable name and initialization
 
         // Process remaining 4-byte chunks - your exact for loop structure
-        for (i; (i + 4) <= len; i += 4)
+        for (; (i + 4) <= len; i += 4)
         {
             uint32_t idx = (start + i) / 4;
             uint32_t words_count = (length_bytes + 3) / 4;

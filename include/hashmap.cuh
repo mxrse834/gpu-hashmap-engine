@@ -1,13 +1,13 @@
 #include <cstdint>
 #ifndef HASHMAP
 #define HASHMAP
-#define TPB 512
-#define BPG 70
+#define TPB 1024
+#define BPG 35
 // Forward declaration
 typedef struct hashmap_engine
 {
-    uint32_t n = 100000000; // 100M entries (~400MB each array)
-    uint32_t o_n = 1000000; // 1M overflow slots (~4MB each array)
+    uint32_t n = 10000000;
+    uint32_t o_n = 100000;
     // int master_offset_current = 0;
     uint32_t master_byte_current = 0;
     uint8_t *master_bytes = NULL;
@@ -35,7 +35,7 @@ typedef struct hashmap_engine
                                   uint32_t *qoffset,
                                   uint32_t length_qoffset,
                                   uint32_t length_qbytes);
-}hashmap_engine;
+} hashmap_engine;
 
 //
 ////DELETE KERNEL -> delete_device
@@ -54,9 +54,7 @@ __global__ void insert_kernel(hashmap_engine *h,
                               uint32_t *offset,
                               uint32_t *data,
                               uint32_t length_offset,
-                              uint32_t length_bytes,
-                              uint32_t last_offset_val,
-                              uint32_t master_byte_current);
+                              uint32_t length_bytes);
 
 //
 ////LOOKUP KERNEL -> lookup_device
