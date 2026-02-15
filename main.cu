@@ -204,18 +204,18 @@ int main()
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
     off_t padding_4 = (file_size1 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     off_t padding_16 = (file_size1 + 15) & ~15;
-    uint32_t *file1_buffer = (uint32_t *)calloc(padding_4 / 4, sizeof(uint32_t)); // USING CALLOC due to '0' init instead of garbage values
+    uint32_t *file1_buffer = (uint32_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f1, file1_buffer, file_size1))
         return false;
     // uint32_t *file1_buffer_offset = (uint32_t *)calloc(padding_16 / 4, sizeof(uint32_t)); ///  were placing the offsets at gaps of 16 bytes (modifiable shouldnt make a difference in the authenticity of the code)
     uint32_t *gfile1_buffer;
     uint32_t *gfile1_buffer_offset;
-    cudaMalloc(&gfile1_buffer, padding_4);
-    cudaMalloc(&gfile1_buffer_offset, (padding_16 / 16 + 1) * sizeof(uint32_t));
-    cudaMemcpy(gfile1_buffer, file1_buffer, padding_4, cudaMemcpyHostToDevice);
+    cudaMalloc(&gfile1_buffer, padding_16);
+    cudaMalloc(&gfile1_buffer_offset, (padding_16 / 16) * sizeof(uint32_t));
+    cudaMemcpy(gfile1_buffer, file1_buffer, padding_16, cudaMemcpyHostToDevice);
 
     // ******lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
-
+    /////////////////////////////////////////////CONTINUE FROM HERE PLS ///////////////////////////////////////////////////////////
     /// INIT HASHMAP
     printf("initilizing GPU hashmap engine...\n");
     hashmap_engine *g;

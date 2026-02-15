@@ -1,4 +1,3 @@
-// small frequently used hashmaps entries we place in shared memory manually
 // #include <thrust/device_vector.h>
 #include <iostream>
 #include <cooperative_groups.h>
@@ -11,31 +10,13 @@
 using namespace std;
 namespace cg = cooperative_groups;
 
-// ==============================
-// GPU HashMap Engine - Core File
-// ==============================
-
-/*uint8_t *bytes,
-    uint32_t *offset,
-    uint32_t *results_h1,
-    uint32_t *results_h2,
-    uint32_t *results_h3*/
-/*struct BurstMetadata
-{
-    uint8_t *flat_bytes; // Which batch
-    uint32_t *offset;     // Where in that batch
-    uint32_t length;     // How long
-};*/
 typedef struct hashmap_engine
 {
     uint32_t n = 10000000;
     uint32_t o_n = 100000;
-    // int master_offset_current = 0;
     uint32_t master_byte_current = 0;
     uint8_t *master_bytes = NULL;
-    // int *master_offset;
     uint32_t last_offset_val = 0;
-    // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
     uint32_t *key = NULL;
     uint32_t *value = NULL;
     uint32_t *o_key = NULL;
@@ -43,32 +24,36 @@ typedef struct hashmap_engine
 } hashmap_engine;
 
 ////INSERT DEVICE (PER THREAD)
-// lets say n is size of our hash table , lets maintain a healthy
-// Kernel: Insert Key-Value Pair into Hash Table (out goal in this part is to generate a key for a specific value to get a key,value pair and store this in our dictionary)
+// Kernel: Insert Key-Value Pair into Hash Table (our goal in this part is to generate a key for a specific value to get a key,value pair and store this in our "dictionary")
 __device__ void insert_device(
     hashmap_engine *h,
     uint32_t *words,
+    uint32_t lov,
+    uint32_t mbc,
     uint32_t *offset,
     uint32_t *data,
     uint32_t length_offset,
     uint32_t length_bytes)
 {
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    // implementation of double buffering into shared memory to deal with waves efficiently
+    // implementation of buffering into shared memory to deal with waves efficiently
     // inour implementation we have 1 wave = 256*160 = 40960threads( maximum number of threads that can exist on the 40 SM's of 2070 super)
-    // above is a example of our current gpu
+    // each SM can schedule a maximum of 64 warps at a time, and ttrue hardware parallelism is only 4 warp schedulers selecting 4 warps to run at a given time
+    // theres zero cost abstraction as the warps are already resident on the gpu
+    // above is a example of our current gpu(check README)
     // shared memory calculation per wave ->
     // 1) 4 threads map to one shared memory string therefore 1 offset
     // 2) therefore we have 256/4= 64 offsets per block each uint32_t therefore 256 bytes per block (there is a hrdware limit of 48kb(configurable upto 64kb) which we are well within)
     // 3) total shared memory used(for 1 wave is) is 40960 bytes which is 40kb
+    //    (Dont misinterpret the wording, since shared memory is unique to each block we will have 264(bytes per block) * 4(blocks per sm)= about 1KB
     // 4) trying to understand hardware limitation->
     //    in this  case we have 4 blocks that will be in a SM at any point in time each SM has its own shared memory limited to exactly 48(or 64)
     //    so we have 48/4=12 kb for each block and each block requires 256 b to store offsets + 8 bytes for storing master_offset_current and master_byte_current
-    //    in total we are using 264 bytes out of 12288(12kb).
+    //    in total we are using 1kb(for calc look at 3)) out of 12288(12kb).
     // 5) SETUP FOR SINGLE BUFFERING
 
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
+    uint8_t *bytes = reinterpret_cast<uint8_t *>(words); // ensure 4 byte padding
     // uint32_t *words = reinterpret_cast<uint32_t *>(byte);
     /*uint32_t *master_vals = (uint32_t *)shmem;
     master_vals[0] = master_byte_currentv;
@@ -78,10 +63,14 @@ __device__ void insert_device(
     // uint8_t *bytes = (uint8_t *)(master_vals + 2);
     uint32_t *words = (uint32_t *)(master_vals + 2);
     uint32_t *offset = (uint32_t *)(words + (length_bytes / 4));*/
-    for (uint32_t wid = tid / 4; wid < length_offset; wid += (gridDim.x * blockDim.x) / 4)
+    for (uint32_t wid = tid / 4; wid < length_offset; wid += (gridDim.x * blockDim.x) / 4) /// REMEmBER WID IS outn indexing method
     {
         uint32_t start = offset[wid];
-        uint32_t len = offset[wid + 1] - start;
+        uint32_t len;
+        if (wid < length_offset)
+            len = offset[wid + 1] - start;
+        else
+            len = offset[length_offset] - start;
         uint32_t posn = (start / 4) + tile.thread_rank();
 
         uint32_t results_h1;
@@ -105,18 +94,23 @@ __device__ void insert_device(
 
         // each thread takes up one string to copy into the master bytes
 
-        if (wid < length_offset)
+        // uint32_t editaT = offset[wid];
+        // uint32_t tile_no = tile.thread_rank();
+        int i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
         {
-            uint32_t editaT = offset[wid];
-            uint32_t tile_no = tile.thread_rank();
-            for (int i = tile_no; i < len; i = i + 4)
-            {
-                h->master_bytes[h->master_byte_current + editaT + i] = bytes[start + i]; // CODE FOR COPYING INTO MASTERBYTE
-            }
-            //(each wid : one offset)
-            /*if (tile_no == 0)
-                master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;*/
+            *(uint32_t *)(h->master_bytes + mbc + start + i) = *(uint32_t *)(bytes + start + i);
+            // the unfortunate method we must use of tricking the compiler into type_casting then dereferencing
         }
+        // for trailing bytes(ie <4 (non ints))
+        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
+        if (tail + tile.thread_rank() < len)
+            h->master_bytes[mbc + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
+
+        //(each wid : one offset)
+        /*if (tile_no == 0)
+            master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;*/
+
         tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
         /*pif (tid == 0)
         {
@@ -124,58 +118,57 @@ __device__ void insert_device(
             master_byte_current += length_bytes;
         }
         tile.sync();*/
-
         if (tile.thread_rank() == 0)
         {
-            if (results_h1 == -1)
+            if (h->key[results_h1] == 0xFFFFFFFF)
             {
-                if (atomicCAS(&h->key[results_h1], -1, h->last_offset_val + offset[wid]) == -1)
+                if (atomicCAS(&h->key[results_h1], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h1] = data[wid];
-                    break;
+                    continue;
                 }
             }
 
-            if (results_h2 == -1)
+            if (h->key[results_h2] == 0xFFFFFFFF)
             {
 
-                if (atomicCAS(&h->key[results_h2], -1, h->last_offset_val + offset[wid]) == -1)
+                if (atomicCAS(&h->key[results_h2], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h2] = data[wid];
-                    break;
+                    continue;
                 }
             }
-            if (results_h3 == -1)
+            if (h->key[results_h3] == 0xFFFFFFFF)
             {
-                if (atomicCAS(&h->key[results_h3], -1, h->last_offset_val + offset[wid]) == -1)
+                if (atomicCAS(&h->key[results_h3], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h3] = data[wid];
-                    break;
+                    continue;
                 }
             }
-            // upto this point we have the key,value pairs inserted into the hashmap most likely (unless there is collision even after the third hash is calculcated so now we go for probing/overflow buffer)
+            // upto this point we have the key,value pairs inserted into the hashmap most likely
+            // (unless there is collision even after the third hash is calculcated so now we go for probing/overflow buffer)
             uint32_t overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n;
             for (int i = 0; i < h->o_n; i++)
             {
                 int idx = (overflow_slot + i) % h->o_n; //  the for loop over "i" allows for linear probing
-                if (atomicCAS(&h->o_key[idx], -1, h->last_offset_val + offset[wid]) == -1)
+                if (atomicCAS(&h->o_key[idx], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->o_value[idx] = data[wid];
-                    break;
+                    continue;
                 }
             }
-        }
-        if (tid == 0)
-        {
-            h->last_offset_val = offset[length_offset];
         }
         /*if (tid == 0)
                   {
                       MASTERBYTES.insert(MASTERBYTES.end(), bytes, bytes + sizeof(bytes) / sizeof(bytes[0]));
                       MASTEROFFSET.insert(MASTEROFFSET.end(), offset, offset + sizeof(offset) / sizeof(offset[0]));
                   }*/
-        // start,posn,len,bytes,offset,
-        //  on my gpu vram = 8 gb keeping a 2 gb overhead we can store about 6.4 bil bytes
+    }
+    if (tid == 1)
+    {
+        h->last_offset_val += offset[length_offset]; // length_offset is a cumulative aggregation
+        h->master_byte_current += length_bytes;      // length_bytes is not its simply a counter
     }
 }
 
@@ -221,12 +214,24 @@ __device__ void lookup_device(hashmap_engine *h,
         // once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
         if (tile.thread_rank() == 0)
         {
-            os1 = h->key[results_h1]; // key is an array that holds all the offsets correspoding to
+            os1 = h->key[results_h1];
             os2 = h->key[results_h2];
             os3 = h->key[results_h3];
         }
-        os1 = tile.shfl(os1, 0); // now all threads hold in the os thread variable the value of results_h1
+        os1 = tile.shfl(os1, 0); // now all threads hold the value of offset (given to us by our first hash)( ie all threads in a tile will hold the same offset value to probe at)
         bool failed = false;
+        /*
+        int i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        {
+            *(uint32_t *)(h->master_bytes + h->master_byte_current + start + i) = *(uint32_t *)(bytes + start + i);
+            // the unfortunate trick we must use of tricking the compiler into type_casting then dereferencing
+        }
+        // for trailing bytes(ie <4 (non ints))
+        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
+        if (tail + tile.thread_rank() < len)
+            h->master_bytes[h->master_byte_current + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
+        */
         for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
         {
             if (h->master_bytes[os1 + i] != qbytes[qoffset[wid] + i])
@@ -533,10 +538,18 @@ __global__ void insert_kernel(hashmap_engine *h,
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     // uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    __shared__ uint32_t lov;
+    __shared__ uint32_t mbc;
     // uint32_t wid = tid / 4;
     if (tid <= length_offset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
         offset[tid] = tid * 16;
-    insert_device(h, words, offset, data, length_offset, length_bytes);
+    if (threadIdx.x == 1)
+    {
+        mbc = h->master_byte_current;
+        lov = h->last_offset_val;
+    }
+    __syncthreads();
+    insert_device(h, words, lov, mbc, offset, data, length_offset, length_bytes);
 }
 
 //

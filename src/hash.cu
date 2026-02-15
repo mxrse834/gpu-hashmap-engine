@@ -103,8 +103,7 @@ acc = acc ^ (acc >> 16)
 #include <string>
 #include <cooperative_groups.h>
 using namespace std;
-#define TPB 1024
-#define SEED 0
+// #define SEED 0
 namespace cg = cooperative_groups;
 /*#define P1 2246822519;
 #define P2 3266489917;
@@ -178,22 +177,21 @@ __device__ void xh332(
 
     uint32_t j = 0;
 
-    // Process 16-byte chunks
-    // Load word once, process through all three hash functions
     for (; j + 16 <= len; j += 16)
     {
-        uint32_t word = 0;
+        /*uint32_t word = 0;
         // guard against out-of-bounds word access
         uint32_t words_count = (length_bytes + 3) / 4;
-        if (posn < words_count) word = words[posn];
-        v1[tile.thread_rank()] = round(v1[tile.thread_rank()], word);
-        v2[tile.thread_rank()] = round(v2[tile.thread_rank()], word);
-        v3[tile.thread_rank()] = round(v3[tile.thread_rank()], word);
+        if (posn < words_count)
+            word = words[posn];*/
+
+        v1[tile.thread_rank()] = round(v1[tile.thread_rank()], words[posn]);
+        v2[tile.thread_rank()] = round(v2[tile.thread_rank()], words[posn]);
+        v3[tile.thread_rank()] = round(v3[tile.thread_rank()], words[posn]);
         posn += 4;
     }
 
-    // Merge accumulators - your exact logic, repeated for each hash
-    if (tile.any(mask) && tile.thread_rank() == 0)
+    if (tile.all(mask) /*&& tile.thread_rank() == 0*/)
     {
         // Hash function 1 merge
         res1 = inst(v1[0], 1);
@@ -213,25 +211,43 @@ __device__ void xh332(
         res3 += tile.shfl(inst(v3[2], 12), 2);
         res3 += tile.shfl(inst(v3[3], 18), 3);
     }
-    // Process remaining bytes - YOUR EXACT LOGIC, just for three results
+    /*
+    Step 4: Process remaining bytes (<16)
+    acc = acc + length
+
+    while 4 bytes remain:
+        k1 = word
+        k1 = k1 * PRIME3
+        k1 = rotate_left(k1, 17)
+        k1 = k1 * PRIME4
+        acc = acc ^ k1
+        acc = rotate_left(acc, 17) * PRIME1 + PRIME4
+
+    while 1 byte remains:
+        k1 = byte * PRIME5
+        acc = acc ^ k1
+        acc = rotate_left(acc, 11) * PRIME1*/
+
+    /// hopefully everything above this is right (:D)
     if (tile.thread_rank() == 0)
     {
-        // Add length to all three results
         res1 += len;
         res2 += len;
         res3 += len;
 
-        uint32_t processed = (len / 16) * 16;
+        /*
+        uint32_t processed = (len & ~15); // FLOOR(multiple of 16) is the op were performing on len
+        uint32_t i = processed;
+        */
         uint32_t k1;
-        uint32_t i = processed; // Using your variable name and initialization
 
-        // Process remaining 4-byte chunks - your exact for loop structure
-        for (; (i + 4) <= len; i += 4)
+        for (; (j + 4) <= len; j += 4)
         {
-            uint32_t idx = (start + i) / 4;
+            /*uint32_t idx = (start + i) / 4;
             uint32_t words_count = (length_bytes + 3) / 4;
-            if (idx < words_count) k1 = words[idx];
-            else k1 = 0;
+            if (idx < words_count)*/
+            k1 = words[posn];
+            // else k1 = 0;
             k1 *= g[4];
             k1 = inst(k1, 17);
             k1 *= g[5];
@@ -245,12 +261,18 @@ __device__ void xh332(
 
             res3 ^= k1;
             res3 = inst(res3, 17) * -g[3] + g[5];
+
+            posn += 1;
         }
 
         // Process remaining individual bytes
-        while (i < len)
+        while (j < len)
         {
-            k1 = bytes[start + i] * g[6];
+            /*while 1 byte remains:
+        k1 = byte * PRIME5
+        acc = acc ^ k1
+        acc = rotate_left(acc, 11) * PRIME1*/
+            k1 = bytes[start + j] * g[6];
 
             // Apply to all three results
             res1 ^= k1;
@@ -262,7 +284,7 @@ __device__ void xh332(
             res3 ^= k1;
             res3 = inst(res3, 11) * -g[3];
 
-            i++;
+            j++;
         }
 
         // Final avalanche
