@@ -8,7 +8,8 @@ NOTES FOR ME:
 >always run 16 byte(teh bytes,qbytes array i mean) padded(hash.cu constraint)
 >run threads in multiples of 4 for now but(hashmap.cu->grid stride loops)
 >are apppending the offset value of the last string in out offset array ?
->for our hashmap insert device we must copy the threads master_byte_curretn adn current_offset into the shared mem of each block so we can process independantly cuz or else some threads might read ols while others will read new vals
+>create a custom thread launch calculator and pad it to our theoretical limit of (256 * 140)
+>lets not check for os1 eqivalence to 0xFFFFFFFF we will copy this value back to our return 
 
 OVERVIEW:
 - Batch Insertions & Lookups of key-value pairs in parallel relying majorly on GPU

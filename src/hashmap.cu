@@ -67,10 +67,10 @@ __device__ void insert_device(
     {
         uint32_t start = offset[wid];
         uint32_t len;
-        if (wid < length_offset)
+        if (wid < length_offset - 1)
             len = offset[wid + 1] - start;
         else
-            len = offset[length_offset] - start;
+            len = length_bytes - start;
         uint32_t posn = (start / 4) + tile.thread_rank();
 
         uint32_t results_h1;
@@ -188,8 +188,13 @@ __device__ void lookup_device(hashmap_engine *h,
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
     for (uint wid = tid / 4; wid < length_qoffset; wid += (blockDim.x * gridDim.x) / 4)
     {
+        tile.sync();
         uint32_t start = qoffset[wid];
-        uint32_t len = qoffset[wid + 1] - start;
+        uint32_t len;
+        if (wid < length_qoffset - 1)
+            len = qoffset[wid + 1] - start;
+        else
+            len = length_qbytes - start;
         uint32_t posn = (start / 4) + tile.thread_rank();
         uint32_t results_h1;
         uint32_t results_h2;
@@ -219,6 +224,14 @@ __device__ void lookup_device(hashmap_engine *h,
             os3 = h->key[results_h3];
         }
         os1 = tile.shfl(os1, 0); // now all threads hold the value of offset (given to us by our first hash)( ie all threads in a tile will hold the same offset value to probe at)
+        if (os1 == 0xFFFFFFFF)
+        {
+            if (tile.thread_rank() == 0)
+            {
+                results[wid] = 0xFFFFFFFF;
+            }
+            continue;
+        }
         bool failed = false;
         /*
         int i = tile.thread_rank();
@@ -232,12 +245,28 @@ __device__ void lookup_device(hashmap_engine *h,
         if (tail + tile.thread_rank() < len)
             h->master_bytes[h->master_byte_current + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
         */
-        for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
+
+        //// here our 1st loop compares in groups of 16 bytes( or maybe more realistically MULTIPLES of 4 (since each thread does 4 bytes and threads are concurrent))
+        //// so here we can ensure we will only have at max 3 trailing bytes ledt that may not be comapred
+        //// conveniently(not so much as intentionally :)) we have exactly 4 threads ina tile so each can do a byte by byte comp in a single iteration to satisfy a maximum case of 3)
+
+        int i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
         {
-            if (h->master_bytes[os1 + i] != qbytes[qoffset[wid] + i])
-            { // code for key value pair found at address
+            if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
                 failed = true;
+            }
+            if (tile.any(failed))
                 break;
+        }
+        // for trailing bytes(ie <4 (non ints))
+        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os1 + tail + thread_rank()] != qbytes[qoffset[wid] + tail + thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
+            {
+                failed = true;
             }
         }
         // we cannot return threads until all the for loops have completed for a given string
@@ -246,7 +275,7 @@ __device__ void lookup_device(hashmap_engine *h,
         {
             if (tile.thread_rank() == 0)
                 results[wid] = h->value[results_h1];
-            break;
+            continue;
         }
         ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
         /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
@@ -254,43 +283,68 @@ __device__ void lookup_device(hashmap_engine *h,
 
         os2 = tile.shfl(os2, 0);
         failed = false;
-        for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
+
+        i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
         {
-            if (h->master_bytes[os2 + i] != qbytes[qoffset[wid] + i])
-            { // code for key value pair found at address
+            if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
                 failed = true;
-                break;
             }
-            // we cannot return threads until all the for loops have completed for a given string
+            if (tile.any(failed))
+                break;
         }
+        // for trailing bytes(ie <4 (non ints))
+        tail = (len & ~3); // last 4 byte "copyable" part
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os2 + tail + thread_rank()] != qbytes[qoffset[wid] + tail + thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
+            {
+                failed = true;
+            }
+        }
+        // we cannot return threads until all the for loops have completed for a given string
         failed = tile.any(failed);
         if (!failed)
         {
             if (tile.thread_rank() == 0)
                 results[wid] = h->value[results_h2];
-            break;
+            continue;
         }
 
-        //////3RD HASH
-        ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
-        /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
-        // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
+    //////3RD HASH
+    ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
+    /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
+    // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
+    try_hash3:
         os3 = tile.shfl(os3, 0);
         failed = false;
-        for (uint32_t i = tile.thread_rank(); i < len; i += tile.size())
+        i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
         {
-            if (tile.any(h->master_bytes[os3 + i] != qbytes[qoffset[wid] + i]))
-            { // code for key value pair found at address
+            if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
                 failed = true;
-                break;
             }
-            // we cannot return threads until all the for loops have completed for a given string
+            if (tile.any(failed))
+                break;
         }
+        // for trailing bytes(ie <4 (non ints))
+        tail = (len & ~3); // last 4 byte "copyable" part
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os3 + tail + thread_rank()] != qbytes[qoffset[wid] + tail + thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
+            {
+                failed = true;
+            }
+        }
+        // we cannot return threads until all the for loops have completed for a given string
         failed = tile.any(failed);
         if (!failed)
         {
             if (tile.thread_rank() == 0)
                 results[wid] = h->value[results_h3];
+            continue;
         }
 
         ////////////////////////////***OVERFLOW LOGIC***
@@ -298,6 +352,7 @@ __device__ void lookup_device(hashmap_engine *h,
         ////// on going through all these three hash funcitons our required kay , value pair is still not found we finally move on to our overflow hash table
         ////// optimization: 1) if empty slot is encountered STOP check 2)ballot to check if found for early exit
         //
+        /////////////CCCONTINUE FROM  HERE ////////////////////
         uint32_t osb;
         uint32_t overflow_slot;
         if (tile.thread_rank() == 0)

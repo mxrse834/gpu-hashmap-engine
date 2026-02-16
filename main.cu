@@ -178,8 +178,6 @@ bool file_read(FILE **f, void *output_buffer, off_t file_size)
 //////////////////////////////////////////////////////////////////////////
 // APPLICATION 1 : FILE DUPLICATION DETECTION USING GPU HASHMAP ENGINE
 /////////////////////////////////////////////////////////////////////////
-// INITIAL INFO :
-// 1) we compare in 32 byte CHUNKS
 
 int main()
 {
@@ -211,11 +209,10 @@ int main()
     uint32_t *gfile1_buffer;
     uint32_t *gfile1_buffer_offset;
     cudaMalloc(&gfile1_buffer, padding_16);
-    cudaMalloc(&gfile1_buffer_offset, (padding_16 / 16) * sizeof(uint32_t));
+    cudaMalloc(&gfile1_buffer_offset, (padding_16 >> 4) * sizeof(uint32_t));
     cudaMemcpy(gfile1_buffer, file1_buffer, padding_16, cudaMemcpyHostToDevice);
 
     // ******lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
-    /////////////////////////////////////////////CONTINUE FROM HERE PLS ///////////////////////////////////////////////////////////
     /// INIT HASHMAP
     printf("initilizing GPU hashmap engine...\n");
     hashmap_engine *g;
@@ -232,7 +229,7 @@ int main()
 
     printf("2");
     fflush(stdout);
-    cudaMemset(data, 0, padding_16);
+    cudaMemset(data, 0, padding_16 >> 2);
     printf("3");
     fflush(stdout);
     cudaCheck();
@@ -241,8 +238,8 @@ int main()
                   gfile1_buffer,
                   gfile1_buffer_offset,
                   data,
-                  padding_16 >> 4,
-                  padding_4
+                  padding_16 >> 2,
+                  padding_16
                   /*g->last_offset_val,
                   g->master_byte_current*/
     ); // passing file1 thru our hash function and storing it in out hashtable
@@ -265,27 +262,26 @@ int main()
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
     padding_4 = (file_size2 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     padding_16 = (file_size2 + 15) & ~15;
-    uint8_t *file2_buffer = (uint8_t *)calloc(padding_4, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
+    uint8_t *file2_buffer = (uint8_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f2, file2_buffer, file_size2))
         return false;
     // uint32_t *file2_buffer_offset = (uint32_t *)calloc(padding_16 / 4, sizeof(uint32_t));
     uint8_t *gfile2_buffer; // as opposed to gfile1_buffer this is byte inedexed**
     uint32_t *gfile2_buffer_offset;
-    cudaMalloc(&gfile2_buffer, padding_4);
-    cudaMalloc(&gfile2_buffer_offset, (padding_16 / 16 + 1) * sizeof(uint32_t));
-    cudaMemcpy(gfile2_buffer, file2_buffer, padding_4, cudaMemcpyHostToDevice);
+    cudaMalloc(&gfile2_buffer, padding_16);
+    cudaMalloc(&gfile2_buffer_offset, (padding_16 >> 4) * sizeof(uint32_t));
+    cudaMemcpy(gfile2_buffer, file2_buffer, padding_16, cudaMemcpyHostToDevice);
     printf("RUNS THE INPUT KERNEL WHICH IS WHY WE DONT SE ANY INFO IN THE LOG");
     fflush(stdout);
     // out data is useless its 0-byte padded accordingly results is also usless :(
     uint32_t *results;
-    cudaMalloc(&results, padding_16);
+    cudaMalloc(&results, padding_16 >> 2);
     lookup_hashmap(g,
                    gfile2_buffer,
                    gfile2_buffer_offset,
-                   padding_16,
+                   padding_16 >> 2,
                    padding_4,
                    results);
-    cudaDeviceSynchronize();
     free(f1_path);
     free(f1_name);
     free(f2_path);
