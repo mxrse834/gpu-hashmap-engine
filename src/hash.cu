@@ -28,7 +28,7 @@
 //  ============================================================================
 
 /*
-CPU PSEUDOCODE(roughly what we will be following on GPU)
+CPU PSEUDOCODE(with a feeble attempt at parallelization )
 
 Step 1:initialize counter
 if length >= 16:
@@ -148,21 +148,184 @@ __device__ void xh332(
     uint32_t length_bytes,
     uint32_t length_offset)
 {
+    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+
+    // ========== Each thread manages 3 scalar accumulators ==========
+    // (one per hash function, representing one v1/v2/v3/v4 slot)
+    uint32_t acc_hash1, acc_hash2, acc_hash3;
+
+    // Three different seeds for three independent hash functions
+    const uint32_t seeds[3] = {0x9E3779B1, 0x517CC1B7, 0x85EBCA6B};
+
+    // Initialize accumulators based on thread rank
+    // Thread 0: gets g[0] = PRIME1+PRIME2
+    // Thread 1: gets g[1] = PRIME2
+    // Thread 2: gets g[2] = 0
+    // Thread 3: gets g[3] = -PRIME1
+    acc_hash1 = g[tile.thread_rank()] + seeds[0];
+    acc_hash2 = g[tile.thread_rank()] + seeds[1];
+    acc_hash3 = g[tile.thread_rank()] + seeds[2];
+
+    uint32_t mask = (len >= 16);
+
+    // Initialize results for short strings (< 16 bytes)
+    res1 = (1 - mask) * (seeds[0] + g[6]);
+    res2 = (1 - mask) * (seeds[1] + g[6]);
+    res3 = (1 - mask) * (seeds[2] + g[6]);
+
+    uint32_t j = 0;
+
+    // ========== Process 16-byte chunks in parallel ==========
+    // Each thread processes one 4-byte word per iteration
+    // Thread 0: processes words[posn+0] for all chunks
+    // Thread 1: processes words[posn+4] for all chunks
+    // Thread 2: processes words[posn+8] for all chunks
+    // Thread 3: processes words[posn+12] for all chunks
+    for (; j + 16 <= len; j += 16)
+    {
+        uint32_t word = words[posn];
+
+        // Update all three hash accumulators
+        acc_hash1 = round(acc_hash1, word);
+        acc_hash2 = round(acc_hash2, word);
+        acc_hash3 = round(acc_hash3, word);
+
+        posn += 4;
+    }
+
+    // ========== Merge accumulators (warp-level parallelism) ==========
+    if (tile.all(mask))
+    {
+        // Step 1: Each thread rotates its own accumulator value
+        // Uses different rotation amounts based on thread rank (1, 7, 12, 18)
+        uint32_t rot_hash1 = inst(acc_hash1, g1[tile.thread_rank()]);
+        uint32_t rot_hash2 = inst(acc_hash2, g1[tile.thread_rank()]);
+        uint32_t rot_hash3 = inst(acc_hash3, g1[tile.thread_rank()]);
+
+        // Step 2: Only thread 0 collects all rotated values via shuffle
+        if (tile.thread_rank() == 0)
+        {
+            // Merge for hash function 1
+            // Collects: rotl(v1,1) + rotl(v2,7) + rotl(v3,12) + rotl(v4,18)
+            res1 = rot_hash1;                // Thread 0's value
+            res1 += tile.shfl(rot_hash1, 1); // Thread 1's value
+            res1 += tile.shfl(rot_hash1, 2); // Thread 2's value
+            res1 += tile.shfl(rot_hash1, 3); // Thread 3's value
+
+            // Merge for hash function 2
+            res2 = rot_hash2;
+            res2 += tile.shfl(rot_hash2, 1);
+            res2 += tile.shfl(rot_hash2, 2);
+            res2 += tile.shfl(rot_hash2, 3);
+
+            // Merge for hash function 3
+            res3 = rot_hash3;
+            res3 += tile.shfl(rot_hash3, 1);
+            res3 += tile.shfl(rot_hash3, 2);
+            res3 += tile.shfl(rot_hash3, 3);
+        }
+    }
+
+    // ========== Process remainder bytes (< 16) ==========
+    // Only thread 0 handles remainder processing
+    if (tile.thread_rank() == 0)
+    {
+        // Add length to all three hash results
+        res1 += len;
+        res2 += len;
+        res3 += len;
+
+        uint32_t k1;
+
+        // Process remaining 4-byte words
+        for (; (j + 4) <= len; j += 4)
+        {
+            k1 = words[posn];
+            k1 *= g[4];        // PRIME3
+            k1 = inst(k1, 17); // rotl(k1, 17)
+            k1 *= g[5];        // PRIME4
+
+            // Apply to all three hash results
+            res1 ^= k1;
+            res1 = inst(res1, 17) * -g[3] + g[5]; // rotl(res1, 17) * PRIME1 + PRIME4
+
+            res2 ^= k1;
+            res2 = inst(res2, 17) * -g[3] + g[5];
+
+            res3 ^= k1;
+            res3 = inst(res3, 17) * -g[3] + g[5];
+
+            posn += 1;
+        }
+
+        // Process remaining individual bytes
+        while (j < len)
+        {
+            k1 = bytes[start + j] * g[6]; // byte * PRIME5
+
+            res1 ^= k1;
+            res1 = inst(res1, 11) * -g[3]; // rotl(res1, 11) * PRIME1
+
+            res2 ^= k1;
+            res2 = inst(res2, 11) * -g[3];
+
+            res3 ^= k1;
+            res3 = inst(res3, 11) * -g[3];
+
+            j++;
+        }
+
+        // ========== Final avalanche (mixing) ==========
+        // Hash function 1
+        res1 ^= res1 >> 15;
+        res1 *= g[1]; // PRIME2
+        res1 ^= res1 >> 13;
+        res1 *= g[4]; // PRIME3
+        res1 ^= res1 >> 16;
+
+        // Hash function 2
+        res2 ^= res2 >> 15;
+        res2 *= g[1];
+        res2 ^= res2 >> 13;
+        res2 *= g[4];
+        res2 ^= res2 >> 16;
+
+        // Hash function 3
+        res3 ^= res3 >> 15;
+        res3 *= g[1];
+        res3 ^= res3 >> 13;
+        res3 *= g[4];
+        res3 ^= res3 >> 16;
+    }
+}
+
+/*__device__ void xh332(
+    uint8_t *bytes,
+    uint32_t tid,
+    uint32_t start,
+    uint32_t len,
+    uint32_t posn,
+    uint32_t wid,
+    uint32_t *offset,
+    uint32_t *words,
+    uint32_t &res1,
+    uint32_t &res2,
+    uint32_t &res3,
+    uint32_t length_bytes,
+    uint32_t length_offset)
+{
     // const uint32_t *words = reinterpret_cast<const uint32_t *>(bytes);
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     // uint32_t tid = threadIdx.x + blockDim.x * blockIdx.x;
     // uint32_t local_wid=(i+threadIdx.x)/4;
-    /*uint32_t start = offset[wid];
-    uint32_t len = offset[wid + 1] - start;
-    uint32_t posn = (start / 4) + tile.thread_rank();*/
 
     // Three sets of accumulators - one per hash function
     uint32_t v1[4], v2[4], v3[4];
 
     // Three different seeds for three hash functions
     const uint32_t seeds[3] = {0x9E3779B1, 0x517CC1B7, 0x85EBCA6B};
+
     // Initialize all three sets of accumulators
-    // Each uses g[tile.thread_rank()] + their respective seed
     v1[tile.thread_rank()] = g[tile.thread_rank()] + seeds[0];
     v2[tile.thread_rank()] = g[tile.thread_rank()] + seeds[1];
     v3[tile.thread_rank()] = g[tile.thread_rank()] + seeds[2];
@@ -170,7 +333,6 @@ __device__ void xh332(
     uint32_t mask = (len >= 16);
 
     // Initialize results for all three hash functions
-    // Uses same logic as your: res = (1 - mask) * (SEED + g[6])
     res1 = (1 - mask) * (seeds[0] + g[6]);
     res2 = (1 - mask) * (seeds[1] + g[6]);
     res3 = (1 - mask) * (seeds[2] + g[6]);
@@ -179,11 +341,7 @@ __device__ void xh332(
 
     for (; j + 16 <= len; j += 16)
     {
-        /*uint32_t word = 0;
-        // guard against out-of-bounds word access
-        uint32_t words_count = (length_bytes + 3) / 4;
-        if (posn < words_count)
-            word = words[posn];*/
+
 
         v1[tile.thread_rank()] = round(v1[tile.thread_rank()], words[posn]);
         v2[tile.thread_rank()] = round(v2[tile.thread_rank()], words[posn]);
@@ -191,7 +349,7 @@ __device__ void xh332(
         posn += 4;
     }
 
-    if (tile.all(mask) /*&& tile.thread_rank() == 0*/)
+    if (tile.all(mask))
     {
         // Hash function 1 merge
         res1 = inst(v1[0], 1);
@@ -211,41 +369,19 @@ __device__ void xh332(
         res3 += tile.shfl(inst(v3[2], 12), 2);
         res3 += tile.shfl(inst(v3[3], 18), 3);
     }
-    /*
-    Step 4: Process remaining bytes (<16)
-    acc = acc + length
 
-    while 4 bytes remain:
-        k1 = word
-        k1 = k1 * PRIME3
-        k1 = rotate_left(k1, 17)
-        k1 = k1 * PRIME4
-        acc = acc ^ k1
-        acc = rotate_left(acc, 17) * PRIME1 + PRIME4
-
-    while 1 byte remains:
-        k1 = byte * PRIME5
-        acc = acc ^ k1
-        acc = rotate_left(acc, 11) * PRIME1*/
-
-    /// hopefully everything above this is right (:D)
     if (tile.thread_rank() == 0)
     {
         res1 += len;
         res2 += len;
         res3 += len;
 
-        /*
-        uint32_t processed = (len & ~15); // FLOOR(multiple of 16) is the op were performing on len
-        uint32_t i = processed;
-        */
+
         uint32_t k1;
 
         for (; (j + 4) <= len; j += 4)
         {
-            /*uint32_t idx = (start + i) / 4;
-            uint32_t words_count = (length_bytes + 3) / 4;
-            if (idx < words_count)*/
+
             k1 = words[posn];
             // else k1 = 0;
             k1 *= g[4];
@@ -268,10 +404,7 @@ __device__ void xh332(
         // Process remaining individual bytes
         while (j < len)
         {
-            /*while 1 byte remains:
-        k1 = byte * PRIME5
-        acc = acc ^ k1
-        acc = rotate_left(acc, 11) * PRIME1*/
+
             k1 = bytes[start + j] * g[6];
 
             // Apply to all three results
@@ -307,7 +440,7 @@ __device__ void xh332(
         res3 ^= res3 >> 16;
     }
 }
-
+*/
 /*
 #include <iostream>
 #include <cuda_runtime.h>

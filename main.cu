@@ -200,7 +200,7 @@ int main()
     file_open(file1, &f1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
 
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
-    off_t padding_4 = (file_size1 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
+    // off_t padding_4 = (file_size1 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     off_t padding_16 = (file_size1 + 15) & ~15;
     uint32_t *file1_buffer = (uint32_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f1, file1_buffer, file_size1))
@@ -224,7 +224,7 @@ int main()
     uint32_t *data = NULL;
     printf("1");
     fflush(stdout);
-    cudaMalloc(&data, padding_16);
+    cudaMalloc(&data, padding_16 >> 2);
     cudaCheck();
 
     printf("2");
@@ -238,7 +238,7 @@ int main()
                   gfile1_buffer,
                   gfile1_buffer_offset,
                   data,
-                  padding_16 >> 2,
+                  padding_16 >> 4,
                   padding_16
                   /*g->last_offset_val,
                   g->master_byte_current*/
@@ -260,7 +260,7 @@ int main()
     file_open(file2, &f2); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
 
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
-    padding_4 = (file_size2 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
+    // padding_4 = (file_size2 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     padding_16 = (file_size2 + 15) & ~15;
     uint8_t *file2_buffer = (uint8_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f2, file2_buffer, file_size2))
@@ -279,8 +279,8 @@ int main()
     lookup_hashmap(g,
                    gfile2_buffer,
                    gfile2_buffer_offset,
-                   padding_16 >> 2,
-                   padding_4,
+                   padding_16 >> 4,
+                   padding_16,
                    results);
     free(f1_path);
     free(f1_name);

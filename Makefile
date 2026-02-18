@@ -2,7 +2,7 @@
 
 # Compiler and flags
 NVCC := nvcc
-CFLAGS := -Xptxas -v -g -rdc=true
+CFLAGS := -Xptxas -v -g -G -O0 -arch=sm_75 -rdc=true
 
 # Directories
 SRC_DIR := src
@@ -13,9 +13,6 @@ BUILD_DIR := build
 SOURCES := main.cu $(SRC_DIR)/hashmap.cu $(SRC_DIR)/hash.cu
 OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/hashmap.o $(BUILD_DIR)/hash.o
 EXECUTABLE := gpu-hashmap
-
-###must run
-.PHONY: all clean 
 
 # Default target
 all: $(EXECUTABLE)
@@ -44,5 +41,5 @@ $(EXECUTABLE): $(OBJECTS)
 clean:
 	rm -rf $(BUILD_DIR) $(EXECUTABLE) 
 
-
-
+###must run
+.PHONY: all clean 

@@ -1,8 +1,8 @@
 #include <cstdint>
 #ifndef HASHMAP
 #define HASHMAP
-#define TPB 1024
-#define BPG 35
+#define TPB 256
+#define BPG 140
 // Forward declaration
 typedef struct hashmap_engine
 {
