@@ -6,7 +6,7 @@
 #include <cstdint>
 #include "hash.cuh"
 #define TPB 256 /// threads per block 256
-#define BPG 140   /// blocks per grid 140
+#define BPG 140 /// blocks per grid 140
 using namespace std;
 namespace cg = cooperative_groups;
 
@@ -36,6 +36,7 @@ __device__ void insert_device(
     uint32_t length_bytes)
 {
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+
     // implementation of buffering into shared memory to deal with waves efficiently
     // inour implementation we have 1 wave = 256*160 = 40960threads( maximum number of threads that can exist on the 40 SM's of 2070 super)
     // each SM can schedule a maximum of 64 warps at a time, and ttrue hardware parallelism is only 4 warp schedulers selecting 4 warps to run at a given time
@@ -63,8 +64,13 @@ __device__ void insert_device(
     // uint8_t *bytes = (uint8_t *)(master_vals + 2);
     uint32_t *words = (uint32_t *)(master_vals + 2);
     uint32_t *offset = (uint32_t *)(words + (length_bytes / 4));*/
-    for (uint32_t wid = tid / 4; wid < length_offset; wid += (gridDim.x * blockDim.x) / 4) /// REMEmBER WID IS outn indexing method
+    for (uint32_t wid = tid / 4; wid < length_offset + 1; wid += (gridDim.x * blockDim.x) / 4) /// IMPORTANT : the +1 ive pu there is to ensure that all threads entire one last loop to make sure i can use tile.sync() effectively everywhere which was causing an infinite hang due to alr exited threads
     {
+        tile.sync();
+        if (wid == length_offset)
+        {
+            break;
+        }
         uint32_t start = offset[wid];
         uint32_t len;
         if (wid < length_offset - 1)
@@ -91,7 +97,19 @@ __device__ void insert_device(
         results_h1 = results_h1 % h->n;
         results_h2 = results_h2 % h->n;
         results_h3 = results_h3 % h->n;
+        /////////////////////////// DEBUG PORTION ////////////////////////////
+        if (tile.thread_rank() == 0)
+        {
+            printf("THREAD %d: Before reading hash table, results_h1=%u\n",
+                   tile.thread_rank(), results_h1);
 
+            printf("THREAD %d: Before reading hash table, results_h2=%u\n",
+                   tile.thread_rank(), results_h2);
+
+            printf("THREAD %d: Before reading hash table, results_h3=%u\n",
+                   tile.thread_rank(), results_h3);
+        }
+        /////////////////////////////////////////////////////////////////////
         // each thread takes up one string to copy into the master bytes
 
         // uint32_t editaT = offset[wid];
@@ -111,7 +129,7 @@ __device__ void insert_device(
         /*if (tile_no == 0)
             master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;*/
 
-        tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
+        // tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
         /*pif (tid == 0)
         {
             master_offset_current += length_offset;
@@ -122,9 +140,14 @@ __device__ void insert_device(
         {
             if (h->key[results_h1] == 0xFFFFFFFF)
             {
-                if (atomicCAS(&h->key[results_h1], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
+                if (atomicCAS(&h->key[results_h1], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h1] = data[wid];
+                    if (wid == 0)
+                    {
+                        printf("THREAD %d: After reading hash table, value at offset: results_h1 in array:key=%u\n",
+                               tile.thread_rank(), h->key[results_h1]);
+                    }
                     continue;
                 }
             }
@@ -132,17 +155,27 @@ __device__ void insert_device(
             if (h->key[results_h2] == 0xFFFFFFFF)
             {
 
-                if (atomicCAS(&h->key[results_h2], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
+                if (atomicCAS(&h->key[results_h2], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h2] = data[wid];
+                    if (wid == 0)
+                    {
+                        printf("THREAD %d: After reading hash table, value at offset: results_h2 in array:key=%u\n",
+                               tile.thread_rank(), h->key[results_h2]);
+                    }
                     continue;
                 }
             }
             if (h->key[results_h3] == 0xFFFFFFFF)
             {
-                if (atomicCAS(&h->key[results_h3], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
+                if (atomicCAS(&h->key[results_h3], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->value[results_h3] = data[wid];
+                    if (wid == 0)
+                    {
+                        printf("THREAD %d: After reading hash table, value at offset: results_h3 in array:key=%u\n",
+                               tile.thread_rank(), h->key[results_h3]);
+                    }
                     continue;
                 }
             }
@@ -152,10 +185,10 @@ __device__ void insert_device(
             for (int i = 0; i < h->o_n; i++)
             {
                 int idx = (overflow_slot + i) % h->o_n; //  the for loop over "i" allows for linear probing
-                if (atomicCAS(&h->o_key[idx], 0xFFFFFFFF, lov + offset[wid]) == 0xFFFFFFFF)
+                if (atomicCAS(&h->o_key[idx], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
                 {
                     h->o_value[idx] = data[wid];
-                    continue;
+                    break;
                 }
             }
         }
@@ -165,16 +198,264 @@ __device__ void insert_device(
                       MASTEROFFSET.insert(MASTEROFFSET.end(), offset, offset + sizeof(offset) / sizeof(offset[0]));
                   }*/
     }
-    if (tid == 1)
+    if (blockIdx.x == 0 && threadIdx.x == 1)
     {
-        h->last_offset_val += offset[length_offset]; // length_offset is a cumulative aggregation
-        h->master_byte_current += length_bytes;      // length_bytes is not its simply a counter
+        // h->last_offset_val += (offset[length_offset - 1]+len); // length_offset is a cumulative aggregation
+        h->master_byte_current += length_bytes; // length_bytes is not its simply a counter
     }
+    /////////////////DEBUG PART///////////////////////////
+
+    ///////////////////////////////
 }
 
 // Kernel: Lookup Key in Hash Table
+
 __device__ void lookup_device(hashmap_engine *h,
-                              uint8_t *qbytes,
+                              uint32_t *qwords,
+                              uint32_t *qoffset,
+                              uint32_t length_qoffset,
+                              uint32_t length_qbytes,
+                              uint32_t *results)
+{
+    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
+    uint8_t *qbytes = reinterpret_cast<uint8_t *>(qwords); // ensure 4 byte padding
+    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+
+    for (uint wid = tid / 4; wid < length_qoffset + 1; wid += (blockDim.x * gridDim.x) / 4)
+    {
+        tile.sync();
+        if (wid == length_qoffset)
+        {
+            break;
+        }
+        uint32_t start = qoffset[wid];
+        uint32_t len;
+        if (wid < length_qoffset - 1)
+            len = qoffset[wid + 1] - start;
+        else
+            len = length_qbytes - start;
+
+        uint32_t posn = (start / 4) + tile.thread_rank();
+        uint32_t results_h1, results_h2, results_h3;
+        uint32_t os1, os2, os3;
+
+        xh332(qbytes, tid, start, len, posn, wid, qoffset,
+              qwords,
+              results_h1, results_h2, results_h3,
+              length_qbytes, length_qoffset);
+        tile.sync();
+        if (tile.thread_rank() == 0)
+        {
+            results_h1 = results_h1 % h->n;
+            results_h2 = results_h2 % h->n;
+            results_h3 = results_h3 % h->n;
+            os1 = h->key[results_h1];
+            os2 = h->key[results_h2];
+            os3 = h->key[results_h3];
+            // ========== DEBUG BLOCK START ==========
+
+            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h1) =%u\n",
+                   tile.thread_rank(), results_h1);
+
+            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h2) =%u\n",
+                   tile.thread_rank(), results_h2);
+
+            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h3) =%u\n",
+                   tile.thread_rank(), results_h3);
+            printf("THREAD 0: these are the 3 offsets in master bytes that may hold the string.Read complete - os1=%u, os2=%u, os3=%u\n",
+                   os1, os2, os3);
+            ///////////////////////////////////////////
+        }
+
+        os1 = tile.shfl(os1, 0);
+
+        printf("THREAD %d: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = %u\n",
+               tile.thread_rank(), os1);
+
+        if (os1 == 0xFFFFFFFF)
+        {
+            if (tile.thread_rank() == 0)
+            {
+                results[wid] = 0xFFFFFFFF;
+                printf("THREAD 0: os1 is empty, set results[%u] = 0xFFFFFFFF\nThis imples that the (key,value) likely does not exist in the hash table\n", wid);
+            }
+            continue;
+        }
+
+        if (tile.thread_rank() == 0)
+        {
+            printf("THREAD 0: os1 is NOT empty, proceeding to compare memory\n");
+        }
+
+        bool failed = false;
+        int i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        {
+            if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
+                failed = true;
+            }
+            if (tile.any(failed))
+                break;
+        }
+
+        uint32_t tail = (len & ~3);
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+            {
+                failed = true;
+            }
+        }
+
+        failed = tile.any(failed);
+        if (!failed)
+        {
+            if (tile.thread_rank() == 0)
+            {
+                results[wid] = h->value[results_h1];
+                printf("MATCHING STRING WAS FOUND\n");
+            }
+            continue;
+        }
+
+        if (tile.thread_rank() == 0)
+            printf("Not found will now probe at os2: %u", os2);
+
+        os2 = tile.shfl(os2, 0);
+        failed = false;
+
+        i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        {
+            if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
+                failed = true;
+            }
+            if (tile.any(failed))
+                break;
+        }
+
+        tail = (len & ~3);
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+            {
+                failed = true;
+            }
+        }
+
+        failed = tile.any(failed);
+        if (!failed)
+        {
+            if (tile.thread_rank() == 0)
+                results[wid] = h->value[results_h2];
+            continue;
+        }
+
+        if (tile.thread_rank() == 0)
+            printf("Not found will now probe at os3: %u", os3);
+
+        os3 = tile.shfl(os3, 0);
+        failed = false;
+
+        i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        {
+            if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
+                failed = true;
+            }
+            if (tile.any(failed))
+                break;
+        }
+
+        tail = (len & ~3);
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+            {
+                failed = true;
+            }
+        }
+
+        failed = tile.any(failed);
+        if (!failed)
+        {
+            if (tile.thread_rank() == 0)
+                results[wid] = h->value[results_h3];
+            continue;
+        }
+
+        uint32_t osb;
+        uint32_t overflow_slot;
+
+        if (tile.thread_rank() == 0)
+        {
+            overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n;
+            if (tile.thread_rank() == 0)
+                printf("Not found will now probe at overflow slot: %u", overflow_slot);
+        }
+
+        overflow_slot = tile.shfl(overflow_slot, 0);
+
+        bool found = false;
+        for (int l = 0; l < 50; l++)
+        {
+            failed = false;
+
+            if (tile.thread_rank() == 0)
+            {
+                osb = h->o_key[(overflow_slot + l) % h->o_n];
+            }
+            osb = tile.shfl(osb, 0);
+
+            if (osb == 0xFFFFFFFF)
+            {
+                if (tile.thread_rank() == 0)
+                    results[wid] = 0xFFFFFFFF;
+                break;
+            }
+
+            i = tile.thread_rank();
+            for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+            {
+                if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+                {
+                    failed = true;
+                }
+                if (tile.any(failed))
+                    break;
+            }
+
+            tail = (len & ~3);
+            if (tail + tile.thread_rank() < len)
+            {
+                if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+                {
+                    failed = true;
+                }
+            }
+
+            failed = tile.any(failed);
+            if (!failed)
+            {
+                if (tile.thread_rank() == 0)
+                    results[wid] = h->o_value[(overflow_slot + l) % h->o_n];
+                found = true;
+                break;
+            }
+        }
+
+        if (!found && tile.thread_rank() == 0)
+        {
+            results[wid] = 0xFFFFFFFF;
+        }
+    }
+}
+/*
+__device__ void lookup_device(hashmap_engine *h,
+                              uint32_t *qwords,
                               uint32_t *qoffset,
                               uint32_t length_qoffset,
                               uint32_t length_qbytes,
@@ -184,10 +465,15 @@ __device__ void lookup_device(hashmap_engine *h,
     // and probe until we find it , now we return the data associated with it if found
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     // cg::thread_block_tile<32> warp = cg::tiled_partition<32>(cg::this_thread_block());
-    uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
+    uint8_t *qbytes = reinterpret_cast<uint8_t *>(qwords); // ensure 4 byte padding
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    for (uint wid = tid / 4; wid < length_qoffset; wid += (blockDim.x * gridDim.x) / 4)
+    for (uint wid = tid / 4; wid < length_qoffset + 1; wid += (blockDim.x * gridDim.x) / 4)
     {
+        tile.sync();
+        if (wid == length_qoffset)
+        {
+            break;
+        }
         uint32_t start = qoffset[wid];
         uint32_t len;
         if (wid < length_qoffset - 1)
@@ -222,6 +508,24 @@ __device__ void lookup_device(hashmap_engine *h,
             os2 = h->key[results_h2];
             os3 = h->key[results_h3];
         }
+        /////////////////////////// DEBUG PORTION ////////////////////////////
+        if (tile.thread_rank() == 0)
+        {
+            printf("THREAD %d: Before reading hash table, results_h1=%u\n",
+                   tile.thread_rank(), results_h1);
+
+            printf("THREAD %d: Before reading hash table, results_h2=%u\n",
+                   tile.thread_rank(), results_h2);
+
+            printf("THREAD %d: Before reading hash table, results_h3=%u\n",
+                   tile.thread_rank(), results_h3);
+        }
+        if(tile.thread_rank()==0)
+        {
+            printf("THREAD %u : \n os1= ")
+        }
+        /////////////////////////////////////////////////////////////////////
+
         os1 = tile.shfl(os1, 0); // now all threads hold the value of offset (given to us by our first hash)( ie all threads in a tile will hold the same offset value to probe at)
         if (os1 == 0xFFFFFFFF)
         {
@@ -231,187 +535,187 @@ __device__ void lookup_device(hashmap_engine *h,
             }
             continue;
         }
-        bool failed = false;
-        /*
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            *(uint32_t *)(h->master_bytes + h->master_byte_current + start + i) = *(uint32_t *)(bytes + start + i);
-            // the unfortunate trick we must use of tricking the compiler into type_casting then dereferencing
-        }
-        // for trailing bytes(ie <4 (non ints))
-        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
-        if (tail + tile.thread_rank() < len)
-            h->master_bytes[h->master_byte_current + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
-        */
+        bool failed = false;*/
+/*
+int i = tile.thread_rank();
+for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+{
+    *(uint32_t *)(h->master_bytes + h->master_byte_current + start + i) = *(uint32_t *)(bytes + start + i);
+    // the unfortunate trick we must use of tricking the compiler into type_casting then dereferencing
+}
+// for trailing bytes(ie <4 (non ints))
+uint32_t tail = (len & ~3); // last 4 byte "copyable" part
+if (tail + tile.thread_rank() < len)
+    h->master_bytes[h->master_byte_current + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
+*/
 
-        //// here our 1st loop compares in groups of 16 bytes( or maybe more realistically MULTIPLES of 4 (since each thread does 4 bytes and threads are concurrent))
-        //// so here we can ensure we will only have at max 3 trailing bytes ledt that may not be comapred
-        //// conveniently(not so much as intentionally :)) we have exactly 4 threads ina tile so each can do a byte by byte comp in a single iteration to satisfy a maximum case of 3)
-
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+//// here our 1st loop compares in groups of 16 bytes( or maybe more realistically MULTIPLES of 4 (since each thread does 4 bytes and threads are concurrent))
+//// so here we can ensure we will only have at max 3 trailing bytes ledt that may not be comapred
+//// conveniently(not so much as intentionally :)) we have exactly 4 threads ina tile so each can do a byte by byte comp in a single iteration to satisfy a maximum case of 3)
+/*
+    int i = tile.thread_rank();
+    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+    {
+        if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
         {
-            if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
+            failed = true;
         }
-        // for trailing bytes(ie <4 (non ints))
-        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
-        if (tail + tile.thread_rank() < len)
+        if (tile.any(failed))
+            break;
+    }
+    // for trailing bytes(ie <4 (non ints))
+    uint32_t tail = (len & ~3); // last 4 byte "copyable" part
+    if (tail + tile.thread_rank() < len)
+    {
+        if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
         {
-            if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-            {
-                failed = true;
-            }
-        }
-        // we cannot return threads until all the for loops have completed for a given string
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->value[results_h1];
-            continue;
-        }
-        ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
-        /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
-        // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
-
-        os2 = tile.shfl(os2, 0);
-        failed = false;
-
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-        // for trailing bytes(ie <4 (non ints))
-        tail = (len & ~3); // last 4 byte "copyable" part
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-            {
-                failed = true;
-            }
-        }
-        // we cannot return threads until all the for loops have completed for a given string
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->value[results_h2];
-            continue;
-        }
-
-        //////3RD HASH
-        ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
-        /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
-        // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
-
-        os3 = tile.shfl(os3, 0);
-        failed = false;
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-        // for trailing bytes(ie <4 (non ints))
-        tail = (len & ~3); // last 4 byte "copyable" part
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-            {
-                failed = true;
-            }
-        }
-        // we cannot return threads until all the for loops have completed for a given string
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->value[results_h3];
-            continue;
-        }
-
-        ////////////////////////////***OVERFLOW LOGIC***
-        //
-        ////// on going through all these three hash funcitons our required kay , value pair is still not found we finally move on to our overflow hash table
-        ////// optimization: 1) if empty slot is encountered STOP check 2)ballot to check if found for early exit
-        //
-        /////////////CCCONTINUE FROM  HERE ////////////////////
-        uint32_t osb;
-        uint32_t overflow_slot;
-
-        if (tile.thread_rank() == 0)
-        {
-            overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n; // this will give the address in the overflow hash table
-        }
-        // osb = tile.shfl(osb, 0); /// osb is the base offset value in the real master bytes array per tile
-        overflow_slot = tile.shfl(overflow_slot, 1);
-        bool found = false;
-        for (int l = 0; l < 50; l++)
-        {
-            failed = false;
-            if (tile.thread_rank() == 0)
-            {
-                osb = h->o_key[(overflow_slot + l) % h->o_n];
-            }
-            osb = tile.shfl(osb, 1);
-
-            if (osb == 0xFFFFFFFF)
-            {
-                if (tile.thread_rank() == 0)
-                    results[wid] = 0xFFFFFFFF;
-                break;
-            }
-
-            int i = tile.thread_rank();
-            for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-            {
-                if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-                {
-                    failed = true;
-                }
-                if (tile.any(failed))
-                    break;
-            }
-            // Handle tail bytes
-            uint32_t tail = (len & ~3);
-            if (tail + tile.thread_rank() < len)
-            {
-                if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-                {
-                    failed = true;
-                }
-            }
-            failed = tile.any(failed);
-            if (!failed)
-            {
-                if (tile.thread_rank() == 0)
-                    results[wid] = h->o_value[(overflow_slot + l) % h->o_n];
-                found = true;
-                break;
-            }
-        }
-        if (!found && tile.thread_rank() == 0)
-        {
-            results[wid] = 0xFFFFFFFF;
+            failed = true;
         }
     }
+    // we cannot return threads until all the for loops have completed for a given string
+    failed = tile.any(failed);
+    if (!failed)
+    {
+        if (tile.thread_rank() == 0)
+            results[wid] = h->value[results_h1];
+        continue;
+    }
+    ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
+    /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
+    // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
+
+    os2 = tile.shfl(os2, 0);
+    failed = false;
+
+    i = tile.thread_rank();
+    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+    {
+        if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+        {
+            failed = true;
+        }
+        if (tile.any(failed))
+            break;
+    }
+    // for trailing bytes(ie <4 (non ints))
+    tail = (len & ~3); // last 4 byte "copyable" part
+    if (tail + tile.thread_rank() < len)
+    {
+        if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
+        {
+            failed = true;
+        }
+    }
+    // we cannot return threads until all the for loops have completed for a given string
+    failed = tile.any(failed);
+    if (!failed)
+    {
+        if (tile.thread_rank() == 0)
+            results[wid] = h->value[results_h2];
+        continue;
+    }
+
+    //////3RD HASH
+    ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
+    /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
+    // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
+
+    os3 = tile.shfl(os3, 0);
+    failed = false;
+    i = tile.thread_rank();
+    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+    {
+        if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+        {
+            failed = true;
+        }
+        if (tile.any(failed))
+            break;
+    }
+    // for trailing bytes(ie <4 (non ints))
+    tail = (len & ~3); // last 4 byte "copyable" part
+    if (tail + tile.thread_rank() < len)
+    {
+        if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
+        {
+            failed = true;
+        }
+    }
+    // we cannot return threads until all the for loops have completed for a given string
+    failed = tile.any(failed);
+    if (!failed)
+    {
+        if (tile.thread_rank() == 0)
+            results[wid] = h->value[results_h3];
+        continue;
+    }
+
+    ////////////////////////////***OVERFLOW LOGIC***
+    //
+    ////// on going through all these three hash funcitons our required kay , value pair is still not found we finally move on to our overflow hash table
+    ////// optimization: 1) if empty slot is encountered STOP check 2)ballot to check if found for early exit
+    //
+    /////////////CCCONTINUE FROM  HERE ////////////////////
+    uint32_t osb;
+    uint32_t overflow_slot;
+
+    if (tile.thread_rank() == 0)
+    {
+        overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n; // this will give the address in the overflow hash table
+    }
+    // osb = tile.shfl(osb, 0); /// osb is the base offset value in the real master bytes array per tile
+    overflow_slot = tile.shfl(overflow_slot, 0);
+    bool found = false;
+    for (int l = 0; l < 50; l++)
+    {
+        failed = false;
+        if (tile.thread_rank() == 0)
+        {
+            osb = h->o_key[(overflow_slot + l) % h->o_n];
+        }
+        osb = tile.shfl(osb, 0);
+
+        if (osb == 0xFFFFFFFF)
+        {
+            if (tile.thread_rank() == 0)
+                results[wid] = 0xFFFFFFFF;
+            break;
+        }
+
+        int i = tile.thread_rank();
+        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        {
+            if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            {
+                failed = true;
+            }
+            if (tile.any(failed))
+                break;
+        }
+        // Handle tail bytes
+        uint32_t tail = (len & ~3);
+        if (tail + tile.thread_rank() < len)
+        {
+            if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+            {
+                failed = true;
+            }
+        }
+        failed = tile.any(failed);
+        if (!failed)
+        {
+            if (tile.thread_rank() == 0)
+                results[wid] = h->o_value[(overflow_slot + l) % h->o_n];
+            found = true;
+            break;
+        }
+    }
+    if (!found && tile.thread_rank() == 0)
+    {
+        results[wid] = 0xFFFFFFFF;
+    }
 }
+}*/
 
 // Kernel: Delete Key from Hash Table
 __device__ void delete_device(hashmap_engine *h,
@@ -633,7 +937,7 @@ __device__ void delete_device(hashmap_engine *h,
 ////LOOKUP KERNEL -> lookup_device
 //
 __global__ void lookup_kernel(hashmap_engine *h,
-                              uint8_t *qbytes,
+                              uint32_t *qwords,
                               uint32_t *qoffset,
                               uint32_t length_qoffset,
                               uint32_t length_qbytes,
@@ -642,10 +946,11 @@ __global__ void lookup_kernel(hashmap_engine *h,
     cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
     // uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
     uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    uint32_t wid = tid / 4;
-    if (tid <= length_qoffset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
+    // uint32_t wid = tid / 4;
+    if (tid < length_qoffset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
         qoffset[tid] = tid * 16;
-    lookup_device(h, qbytes, qoffset, length_qoffset, length_qbytes, results);
+    __syncthreads();
+    lookup_device(h, qwords, qoffset, length_qoffset, length_qbytes, results);
 }
 
 //
@@ -664,7 +969,7 @@ __global__ void insert_kernel(hashmap_engine *h,
     __shared__ uint32_t lov;
     __shared__ uint32_t mbc;
     // uint32_t wid = tid / 4;
-    if (tid <= length_offset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
+    if (tid < length_offset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
         offset[tid] = tid * 16;
     if (threadIdx.x == 1)
     {

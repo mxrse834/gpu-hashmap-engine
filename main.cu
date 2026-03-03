@@ -32,7 +32,7 @@ using namespace std;
 //  the main idea is to have our typedef struct hashmap_engine instance on the host side
 //  and all its corresponding elements on the device side
 // PRIMARY REASON : cudaMalloc requires a host pointer to allocate memory on the device side
-void init(hashmap_engine **g)
+void init(hashmap_engine **g, hashmap_engine &p)
 {
     size_t freemem, totalmem;
     cudaMemGetInfo(&freemem, &totalmem);
@@ -40,7 +40,6 @@ void init(hashmap_engine **g)
     size_t memavail = freemem - 2000000000; // keeping 2GB buffer for other operations
     // we divide memavail into parts based on requyirements of our hashmap elements
     size_t size = memavail / 4;
-    hashmap_engine p; // we are declaring a hashmap engine instance on the host
     cudaMalloc(&p.master_bytes, size);
     cudaMalloc(&p.key, size);
     cudaMalloc(&p.value, size);
@@ -68,22 +67,26 @@ void input_hashmap(hashmap_engine *h,
                                 length_offset,
                                 length_bytes);
     cudaCheck();
+    printf("input_hashmap returned!\n");
+    fflush(stdout);
 }
 
 void lookup_hashmap(hashmap_engine *h,
-                    uint8_t *qbytes,
+                    uint32_t *qwords,
                     uint32_t *qoffset,
                     uint32_t length_qoffset,
                     uint32_t length_qbytes,
                     uint32_t *results)
 {
     lookup_kernel<<<BPG, TPB>>>(h,
-                                qbytes,
+                                qwords,
                                 qoffset,
                                 length_qoffset,
                                 length_qbytes,
                                 results);
     cudaCheck();
+    printf("lookup_hashmap returned!\n");
+    fflush(stdout);
 }
 
 void delete_hashmap(hashmap_engine *h,
@@ -195,7 +198,10 @@ int main()
     okay = okay && parse_path(file1, f1_path, f1_name); /// use to parse path to seperate file name and path
     okay = okay && find_file(f1_path, f1_name, file_size1);
     if (!okay)
+    {
         fprintf(stderr, "UNDEFINED ERROR IN FILE CHECK");
+        return 1;
+    }
     FILE *f1 = NULL;
     file_open(file1, &f1); // to actually open file after verifying it exists  ( HELD AT f(pointer name of FILE*))
 
@@ -204,35 +210,42 @@ int main()
     off_t padding_16 = (file_size1 + 15) & ~15;
     uint32_t *file1_buffer = (uint32_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f1, file1_buffer, file_size1))
-        return false;
+    {
+        fprintf(stderr, "COULDNT READ FILE :(");
+        return -1;
+    }
+
     // uint32_t *file1_buffer_offset = (uint32_t *)calloc(padding_16 / 4, sizeof(uint32_t)); ///  were placing the offsets at gaps of 16 bytes (modifiable shouldnt make a difference in the authenticity of the code)
     uint32_t *gfile1_buffer;
     uint32_t *gfile1_buffer_offset;
     cudaMalloc(&gfile1_buffer, padding_16);
     cudaMalloc(&gfile1_buffer_offset, (padding_16 >> 4) * sizeof(uint32_t));
     cudaMemcpy(gfile1_buffer, file1_buffer, padding_16, cudaMemcpyHostToDevice);
-
     // ******lets init the gfile_buffer_offset on the gpu itself ( to avoid a expensive loop)
     /// INIT HASHMAP
     printf("initilizing GPU hashmap engine...\n");
     hashmap_engine *g;
-    init(&g); // allocate GPU memory for hashmap engine
-    cudaCheck();
+    hashmap_engine p;
+    init(&g, p); // allocate GPU memory for hashmap engine
     printf("initialization complete.\n");
 
     // USELESS CUDA MALLOC FOR DATA IN THIS CASE SO WE JUST DO THE FOLLOWING:
     uint32_t *data = NULL;
-    printf("1");
-    fflush(stdout);
-    cudaMalloc(&data, padding_16 >> 2);
-    cudaCheck();
+    cudaMalloc(&data, (padding_16 >> 4) * sizeof(uint32_t));
+    cudaMemset(data, 0, (padding_16 >> 4) * sizeof(uint32_t));
 
-    printf("2");
-    fflush(stdout);
-    cudaMemset(data, 0, padding_16 >> 2);
-    printf("3");
-    fflush(stdout);
-    cudaCheck();
+    ////////////////////////debug portion////////////////////
+    uint32_t debug1;
+    uint8_t *debug2;
+    printf("file_size1 = %ld\n", file_size1);
+    printf("padding_16 = %ld\n", padding_16);
+    uint8_t *b = (uint8_t *)file1_buffer;
+    for (int m = 0; m < padding_16; m++)
+    {
+        printf("%02x ", b[m]);
+    }
+    fputs((const char *)file1_buffer, stdout);
+    ////////////////////////////////////////////////////
 
     input_hashmap(g,
                   gfile1_buffer,
@@ -243,6 +256,25 @@ int main()
                   /*g->last_offset_val,
                   g->master_byte_current*/
     ); // passing file1 thru our hash function and storing it in out hashtable
+    cudaCheck();
+
+    /////////////////////debug portion/////////////////
+    cudaMemcpy(&debug1, &g->master_byte_current, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    printf("%d\n", debug1);
+    uint32_t debug3[padding_16 >> 4];
+    cudaMemcpy(debug3, gfile1_buffer_offset, (padding_16 >> 4) * sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    for (int m = 0; m < (padding_16 >> 4); m++)
+    {
+        printf("%d ", debug3[m]);
+    }
+
+    debug2 = (uint8_t *)calloc(sizeof(uint8_t), debug1);
+    cudaMemcpy(debug2, p.master_bytes, sizeof(uint8_t) * debug1, cudaMemcpyDeviceToHost);
+    for (int m = 0; m < debug1; m++)
+    {
+        printf("%c", debug2[m]);
+    }
+    //////////////////////////////////////////////
 
     // ideally next step would to to do a lookup using the second file
     char *f2_path = (char *)malloc(PATH_MAX);
@@ -262,26 +294,70 @@ int main()
     /// CODE TO PAD TO MULTIPLE OF 4 FOR REINTERPRETATION OF BYTES AS 32 uints
     // padding_4 = (file_size2 + 3) & ~3; // NEAT bit manipulation trick masks off lower to bits by ANDing with negated 3
     padding_16 = (file_size2 + 15) & ~15;
-    uint8_t *file2_buffer = (uint8_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
+    uint32_t *file2_buffer = (uint32_t *)calloc(padding_16, sizeof(uint8_t)); // USING CALLOC due to '0' init instead of garbage values
     if (!file_read(&f2, file2_buffer, file_size2))
-        return false;
+    {
+        fprintf(stderr, "COULDNT READ FILE :(");
+        return -1;
+    }
+
+    /////////////////////////////DEBUG part///////////////////////////
+    uint8_t *b2 = (uint8_t *)file2_buffer;
+    for (int m = 0; m < padding_16; m++)
+    {
+        printf("%02x ", b2[m]);
+    }
+    fputs((const char *)file2_buffer, stdout);
+    ///////////////////////////////////////////////////////////////////
+
     // uint32_t *file2_buffer_offset = (uint32_t *)calloc(padding_16 / 4, sizeof(uint32_t));
-    uint8_t *gfile2_buffer; // as opposed to gfile1_buffer this is byte inedexed**
+    uint32_t *gfile2_buffer; // as opposed to gfile1_buffer this is byte inedexed**
     uint32_t *gfile2_buffer_offset;
     cudaMalloc(&gfile2_buffer, padding_16);
     cudaMalloc(&gfile2_buffer_offset, (padding_16 >> 4) * sizeof(uint32_t));
     cudaMemcpy(gfile2_buffer, file2_buffer, padding_16, cudaMemcpyHostToDevice);
-    printf("RUNS THE INPUT KERNEL WHICH IS WHY WE DONT SE ANY INFO IN THE LOG");
-    fflush(stdout);
     // out data is useless its 0-byte padded accordingly results is also usless :(
     uint32_t *results;
-    cudaMalloc(&results, padding_16 >> 2);
+    cudaMalloc(&results, (padding_16 >> 4) * sizeof(uint32_t));
+    cudaMemset(data, 0, (padding_16 >> 4) * sizeof(uint32_t));
+    /*input_hashmap(g,
+                  gfile2_buffer,
+                  gfile2_buffer_offset,
+                  results,
+                  padding_16 >> 4,
+                  padding_16
+    );*/
+    ////////////////////DEBUG PART
+    cudaMemcpy(&debug1, &g->master_byte_current, sizeof(uint32_t), cudaMemcpyDeviceToHost);
+    printf("%u\n", debug1);
+    debug2 = (uint8_t *)realloc(debug2, debug1);
+    cudaMemcpy(debug2, p.master_bytes, sizeof(uint8_t) * debug1, cudaMemcpyDeviceToHost);
+    for (int m = 0; m < debug1; m++)
+    {
+        printf("%02x ", debug2[m]);
+    }
+    fflush(stdout);
+
+    ////////////////////////
+
     lookup_hashmap(g,
                    gfile2_buffer,
                    gfile2_buffer_offset,
                    padding_16 >> 4,
                    padding_16,
                    results);
+    cudaCheck();
+
+    ////////////////////DEBUG PART
+    /*uint32_t *output;
+    output = (uint32_t *)malloc(sizeof(uint32_t) * padding_16 >> 4);
+    cudaMemcpy(output, results, sizeof(uint32_t) * padding_16 >> 4, cudaMemcpyDeviceToHost);
+    for (int b = 0; b < padding_16 >> 4; b++)
+    {
+        printf("%d", output[b]);
+    }*/
+    ////////////////////////
+
     free(f1_path);
     free(f1_name);
     free(f2_path);
@@ -295,11 +371,11 @@ int main()
     cudaFree(gfile1_buffer_offset);
     cudaFree(gfile2_buffer_offset);
     cudaFree(data);
-    cudaFree(g->master_bytes);
-    cudaFree(g->key);
-    cudaFree(g->o_key);
-    cudaFree(g->value);
-    cudaFree(g->o_value);
+    cudaFree(p.master_bytes);
+    cudaFree(p.key);
+    cudaFree(p.o_key);
+    cudaFree(p.value);
+    cudaFree(p.o_value);
     cudaFree(g);
     fputs("well looks like we atleast reached here!!!", stdout);
     return 0;

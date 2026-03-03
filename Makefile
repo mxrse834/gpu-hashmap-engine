@@ -1,8 +1,9 @@
 # CUDA Hashmap Engine Makefile
+###-Xptxas -v -g -G -O0 -arch=sm_75
 
 # Compiler and flags
 NVCC := nvcc
-CFLAGS := -Xptxas -v -g -G -O0 -arch=sm_75 -rdc=true
+CFLAGS := -O0 -rdc=true
 
 # Directories
 SRC_DIR := src
@@ -15,7 +16,7 @@ OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/hashmap.o $(BUILD_DIR)/hash.o
 EXECUTABLE := gpu-hashmap
 
 # Default target
-all: $(EXECUTABLE)
+all: clean $(EXECUTABLE)
 
 # Create build directory
 $(BUILD_DIR):

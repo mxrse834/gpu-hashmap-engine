@@ -177,10 +177,7 @@ __device__ void xh332(
 
     // ========== Process 16-byte chunks in parallel ==========
     // Each thread processes one 4-byte word per iteration
-    // Thread 0: processes words[posn+0] for all chunks
-    // Thread 1: processes words[posn+4] for all chunks
-    // Thread 2: processes words[posn+8] for all chunks
-    // Thread 3: processes words[posn+12] for all chunks
+
     for (; j + 16 <= len; j += 16)
     {
         uint32_t word = words[posn];
@@ -189,7 +186,7 @@ __device__ void xh332(
         acc_hash1 = round(acc_hash1, word);
         acc_hash2 = round(acc_hash2, word);
         acc_hash3 = round(acc_hash3, word);
-
+        printf("THREAD %d : acc_hash1 = %d ,acc_hash2 = %d,acc_hash3 = %d\n", tile.thread_rank(), acc_hash1, acc_hash2, acc_hash3);
         posn += 4;
     }
 
@@ -201,29 +198,29 @@ __device__ void xh332(
         uint32_t rot_hash1 = inst(acc_hash1, g1[tile.thread_rank()]);
         uint32_t rot_hash2 = inst(acc_hash2, g1[tile.thread_rank()]);
         uint32_t rot_hash3 = inst(acc_hash3, g1[tile.thread_rank()]);
+        printf("THREAD %d : rot_hash1 = %d ,rot_hash2 = %d,rot_hash3 = %d\n", tile.thread_rank(), rot_hash1, rot_hash2, rot_hash3);
 
         // Step 2: Only thread 0 collects all rotated values via shuffle
-        if (tile.thread_rank() == 0)
-        {
-            // Merge for hash function 1
-            // Collects: rotl(v1,1) + rotl(v2,7) + rotl(v3,12) + rotl(v4,18)
-            res1 = rot_hash1;                // Thread 0's value
-            res1 += tile.shfl(rot_hash1, 1); // Thread 1's value
-            res1 += tile.shfl(rot_hash1, 2); // Thread 2's value
-            res1 += tile.shfl(rot_hash1, 3); // Thread 3's value
+        /*if (tile.thread_rank() == 0)
+        {*/
+        // Merge for hash function 1
+        // Collects: rotl(v1,1) + rotl(v2,7) + rotl(v3,12) + rotl(v4,18)
+        res1 = rot_hash1;                // Thread 0's value
+        res1 += tile.shfl(rot_hash1, 1); // Thread 1's value
+        res1 += tile.shfl(rot_hash1, 2); // Thread 2's value
+        res1 += tile.shfl(rot_hash1, 3); // Thread 3's value
 
-            // Merge for hash function 2
-            res2 = rot_hash2;
-            res2 += tile.shfl(rot_hash2, 1);
-            res2 += tile.shfl(rot_hash2, 2);
-            res2 += tile.shfl(rot_hash2, 3);
+        // Merge for hash function 2
+        res2 = rot_hash2;
+        res2 += tile.shfl(rot_hash2, 1);
+        res2 += tile.shfl(rot_hash2, 2);
+        res2 += tile.shfl(rot_hash2, 3);
 
-            // Merge for hash function 3
-            res3 = rot_hash3;
-            res3 += tile.shfl(rot_hash3, 1);
-            res3 += tile.shfl(rot_hash3, 2);
-            res3 += tile.shfl(rot_hash3, 3);
-        }
+        // Merge for hash function 3
+        res3 = rot_hash3;
+        res3 += tile.shfl(rot_hash3, 1);
+        res3 += tile.shfl(rot_hash3, 2);
+        res3 += tile.shfl(rot_hash3, 3);
     }
 
     // ========== Process remainder bytes (< 16) ==========

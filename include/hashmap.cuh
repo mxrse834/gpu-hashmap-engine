@@ -43,7 +43,7 @@ __global__ void insert_kernel(hashmap_engine *h,
 ////LOOKUP KERNEL -> lookup_device
 //
 __global__ void lookup_kernel(hashmap_engine *h,
-                              uint8_t *qbytes,
+                              uint32_t *qwords,
                               uint32_t *qoffset,
                               uint32_t length_qoffset,
                               uint32_t length_qbytes,
