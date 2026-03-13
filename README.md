@@ -3,7 +3,6 @@
 /home/pnglinkpc/cuda/gpu-hashmap-engine/testfile1.bin
 /home/pnglinkpc/cuda/gpu-hashmap-engine/testfile2.bin
 
-
 NOTES FOR ME:
 >always run 16 byte(teh bytes,qbytes array i mean) padded(hash.cu constraint)
 >run threads in multiples of 4 for now but(hashmap.cu->grid stride loops)
