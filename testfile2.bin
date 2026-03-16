@@ -1,50 +1,206 @@
-~/cuda/gpu-hashmap-engine main* 10s
-❯ make && ./run.sh
-rm -rf build gpu-hashmap 
-mkdir -p build
-nvcc -O0 -rdc=true -Iinclude -c main.cu -o build/main.o
-nvcc -O0 -rdc=true -Iinclude -c src/hashmap.cu -o build/hashmap.o
-nvcc -O0 -rdc=true -Iinclude -c src/hash.cu -o build/hash.o
-nvcc -O0 -rdc=true -o gpu-hashmap build/main.o build/hashmap.o build/hash.o 
-========= COMPUTE-SANITIZER
-Give the file name 1 to process: 
-Give the file name 2 to process: 
-initilizing GPU hashmap engine...
-initialization complete.
-file_size1 = 13
-padding_16 = 16
-54 68 69 73 20 69 73 20 66 69 6c 65 31 00 00 00 This is file1THREAD 0 : acc_hash1 = -239206423 ,acc_hash2 = -2117384751,acc_hash3 = 1417243647
-THREAD 1 : acc_hash1 = -1298985869 ,acc_hash2 = -522728436,acc_hash3 = -1283067334
-THREAD 2 : acc_hash1 = -198423139 ,acc_hash2 = 1936700293,acc_hash3 = 1176361395
-THREAD 3 : acc_hash1 = 122750724 ,acc_hash2 = -1755427604,acc_hash3 = 1779200794
-THREAD 0 : rot_hash1 = -478412845 ,rot_hash2 = 60197795,rot_hash3 = -1460480002
-THREAD 1 : rot_hash1 = 1233533401 ,rot_hash2 = 1810237040,rot_hash3 = -1023861415
-THREAD 2 : rot_hash1 = -992354494 ,rot_hash2 = -80193738,rot_hash3 = -577031071
-THREAD 3 : rot_hash1 = 470818116 ,rot_hash2 = 867327353,rot_hash3 = -865490895
-THREAD 0: Before reading hash table, results_h1=3189760
-THREAD 0: Before reading hash table, results_h2=2193258
-THREAD 0: Before reading hash table, results_h3=3653374
-THREAD 0: After reading hash table, value at offset: results_h1 in array:key=0
-input_hashmap returned!
-16
-0 This is file154 68 69 73 20 69 73 20 66 69 6c 65 31 00 00 00 This is file116
-54 68 69 73 20 69 73 20 66 69 6c 65 31 00 00 00 THREAD 0 : acc_hash1 = -239206423 ,acc_hash2 = -2117384751,acc_hash3 = 1417243647
-THREAD 1 : acc_hash1 = -1298985869 ,acc_hash2 = -522728436,acc_hash3 = -1283067334
-THREAD 2 : acc_hash1 = -198423139 ,acc_hash2 = 1936700293,acc_hash3 = 1176361395
-THREAD 3 : acc_hash1 = 122750724 ,acc_hash2 = -1755427604,acc_hash3 = 1779200794
-THREAD 0 : rot_hash1 = -478412845 ,rot_hash2 = 60197795,rot_hash3 = -1460480002
-THREAD 1 : rot_hash1 = 1233533401 ,rot_hash2 = 1810237040,rot_hash3 = -1023861415
-THREAD 2 : rot_hash1 = -992354494 ,rot_hash2 = -80193738,rot_hash3 = -577031071
-THREAD 3 : rot_hash1 = 470818116 ,rot_hash2 = 867327353,rot_hash3 = -865490895
-THREAD 0: We probe at this address in out hash table to get our offset in the master bytes(results_h1) =3189760
-THREAD 0: We probe at this address in out hash table to get our offset in the master bytes(results_h2) =2193258
-THREAD 0: We probe at this address in out hash table to get our offset in the master bytes(results_h3) =3653374
-THREAD 0: these are the 3 offsets in master bytes that may hold the string.Read complete - os1=0, os2=4294967295, os3=4294967295
+3A 7F 11 92 E4 5C 6D B0 44 8A F3 01 9C 2D EE 73
+6B 54 C1 90 0A 2F 7D 81 33 AF 68 D2 49 10 B5 9E
+E1 06 5A 8C 7B 2E 14 C9 90 4F 22 AD 6E 71 0D F8
+13 87 5D A1 2C 3B B9 44 0E F2 6A D7 18 C3 55 9A
+7C 01 62 EF 9D 34 B8 5A 0F 29 C6 41 D3 88 7E 1B
+F0 2A 64 99 3D CE 70 81 B2 15 4A 7F D8 0C E3 56
+92 AB 6F 18 33 E4 5D 7A C0 29 84 1F B6 D1 73 0E
+4C 97 2B F5 68 11 9A 3E C2 7D 50 84 AE 61 D9 0F
+B3 26 7C E8 4A 95 10 D2 6F 3B C1 8E 54 A7 29 FD
+1C 70 B8 42 6D E3 91 0A 5F C7 38 2D A4 6B 19 EE
+1A 2B 3C rwerewr 234 23 v2v 25t23 v32 v23 wefwer23er werwe cwwer
+wer wer wet34 t34
+ 24t 432
+  34t34
+  t 34t 34t324t 34  bhet
+  54 64u k6u k78 89;8
+  THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 336
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 336
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 352
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 352
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 352
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 352
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 368
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 368
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 368
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 368
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 384
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 384
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 384
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 384
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 400
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 400
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 400
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 400
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 416
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 416
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 416
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 416
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 432
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 432
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 432
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 432
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 448
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 448
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 448
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 448
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 464
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 464
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 464
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 464
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 480
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 480
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 480
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 480
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 496
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 496
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 496
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 496
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 512
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 512
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 512
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 512
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 528
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 528
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 528
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 528
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 544
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 544
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 544
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 544
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 560
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 560
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 560
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 560
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 576
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 576
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 576
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 576
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 592
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 592
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 592
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 592
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 608
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 608
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 608
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 608
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 624
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 624
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 624
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 624
 THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 0
 THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 0
 THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 0
 THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 0
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 16
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 16
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 16
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 16
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 32
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 32
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 32
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 32
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 48
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 48
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 48
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 48
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 64
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 64
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 64
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 64
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 80
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 80
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 80
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 80
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 96
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 96
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 96
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 96
+THREAD 0: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 112
+THREAD 1: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 112
+THREAD 2: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 112
+THREAD 3: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = 112
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
+THREAD 0: os1 is NOT empty, proceeding to compare memory
 THREAD 0: os1 is NOT empty, proceeding to compare memory
 MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+MATCHING STRING WAS FOUND
+All strings found, exiting lookup kernel
 lookup_hashmap returned!
 well looks like we atleast reached here!!!========= ERROR SUMMARY: 0 errors
+========= COMPUTE-SANITIZER

@@ -23,6 +23,8 @@ typedef struct hashmap_engine
     uint32_t *o_value = NULL;
 } hashmap_engine;
 
+__device__ int count = 0;
+
 ////INSERT DEVICE (PER THREAD)
 // Kernel: Insert Key-Value Pair into Hash Table (our goal in this part is to generate a key for a specific value to get a key,value pair and store this in our "dictionary")
 __device__ void insert_device(
@@ -307,7 +309,7 @@ __device__ void lookup_device(hashmap_engine *h,
                 failed = true;
             }
         }
-
+        // atomicCAS(&count, 0, 0); // reset count for next string
         failed = tile.any(failed);
         if (!failed)
         {
@@ -315,6 +317,12 @@ __device__ void lookup_device(hashmap_engine *h,
             {
                 results[wid] = h->value[results_h1];
                 printf("MATCHING STRING WAS FOUND\n");
+                int old = atomicAdd(&count, 1);
+                printf("%d\n", old);
+                if (old == length_qoffset - 1  && tile.thread_rank() ==0)
+                {
+                    printf("All strings found, exiting lookup kernel\n");
+                }
             }
             continue;
         }

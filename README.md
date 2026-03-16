@@ -235,11 +235,12 @@ Bulk operations: Designed to insert/look up batches of keys at once (not single-
         cr[wid] = res;
     }*/
 }
+/*********************************************************************************************************************************/
 
-///
+//////////////////////////////////////////////////////////
 Double buffering-load in one tile while processing another
+//////////////////////////////////////////////////////////
 
-///
 HARDWARE UNDERSTANDING OF THE RTX 2070 SUPER:
    We have 40 Streaming multiprocessors(SMs) ,each SM can have upto 1024 resident thread(32warps)
    ,now the main part which is general to all turing architecture cards each SM has 4 hardware schedulers(each nominates 1 warp to run) , so by doing some basic math we see that 4*32=128 threads run (truly)parallely in a single clock per SM.but all 4 blocks in our case run concurrently .the SM can only see 1024 threads= 32 warps running it cannot differentiate between blocks.The shared memory and L1exist in teh same physical space hence cuda allows us to partition it as per our choice - these 3 choices are available: 
@@ -264,7 +265,8 @@ HARDWARE UNDERSTANDING OF THE RTX 2070 SUPER:
         | L1 Cache               | **32 KB**           |
         | Texture Units          | **4**               |
 
-///
+/***********************************************************************************************************************************/
+
 PROBLEMS KNOWN
 1) 75% thread underultilixzation in hashmap.cu
 3) if i use shared memory for storing the bytes array in addition to the already stored offset   array ( whihc has a theoretical limit of 64 uint32_t offsets(256 bytes) per block) i will have to face a limit of 192 characters per string on avg ( where i use all 64 offsets)
@@ -280,6 +282,10 @@ why ? in hashmap.cu for better compiler optimization we have two if condition (w
 10) in the atmoicCAS fucntion that is defined under a tid%4==0 condition
     we cant achive parallelism here as one thread writes a balue to glob al mem that the other one needs
 11) whenever we give input were gonna have to add a final offset that is qeuqal to total size of bytes and all the condition that run must aassume total size - 1 this element will only be a padding measure    
+
+
+
+
 TODO
 1) initialize key array to -1 ->cudaMemset
 2) try to use shared memory for every insertion burst ( use it for offsets  (ALSO U CAN ONLY USE IN __GLOBAL__ NOT IN __DEVICE__))
