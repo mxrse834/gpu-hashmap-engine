@@ -377,6 +377,7 @@ int main()
     cudaFree(p.value);
     cudaFree(p.o_value);
     cudaFree(g);
+    cudaFree(results);
     fputs("well looks like we atleast reached here!!!", stdout);
     return 0;
 }

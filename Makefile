@@ -3,7 +3,7 @@
 
 # Compiler and flags
 NVCC := nvcc
-CFLAGS := -O0 -rdc=true
+CFLAGS := -O0 -G -rdc=true
 
 # Directories
 SRC_DIR := src

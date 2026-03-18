@@ -1,1 +1,0 @@
-ncu ./gpu-hashmap
