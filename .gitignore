@@ -1,0 +1,12 @@
+/build/
+/.syntax-stubs/
+/.vscode/
+/gpu-hashmap
+/logs/
+/src/cha
+/src/hm
+*.o
+*.ncu-rep
+__pycache__/
+*.py[cod]
+/test/*.bin
