@@ -1,52 +1,64 @@
-#include <cstdint>
-#ifndef HASHMAP
-#define HASHMAP
-#define TPB 256
-#define BPG 140
-// Forward declaration
-typedef struct hashmap_engine
+#pragma once
+
+#include <cuda_runtime.h>
+
+#include <stdint.h>
+
+#define HASHMAP_THREADS_PER_BLOCK 256u
+#define HASHMAP_EMPTY_SLOT UINT32_C(0xFFFFFFFF)
+#define HASHMAP_TOMBSTONE_SLOT UINT32_C(0xFFFFFFFE)
+
+// Device-resident state. The host owns an identical descriptor whose pointers
+// refer to device allocations, then copies the descriptor itself to the GPU.
+typedef struct HashmapEngine
 {
-    uint32_t n = 10000000;
-    uint32_t o_n = 100000;
-    // int master_offset_current = 0;
-    uint32_t master_byte_current = 0;
-    uint8_t *master_bytes = NULL;
-    // int *master_offset;
-    uint32_t last_offset_val = 0;
-    // these 2 store the complete string and the offsets to seperate its parts ( inclusive of all the elements in the current hash table)
-    uint32_t *key;
-    uint32_t *value;
-    uint32_t *o_key;
-    uint32_t *o_value;
-} hashmap_engine;
+    uint32_t primary_capacity;
+    uint32_t overflow_capacity;
+    uint32_t byte_capacity;
+    uint32_t master_byte_current;
+    uint32_t batch_base;
 
-//
-////DELETE KERNEL -> delete_device
-//
-__global__ void delete_kernel(hashmap_engine *h,
-                              uint8_t *qbytes,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes);
+    uint8_t *master_bytes;
 
-//
-////INSERT KERNEL -> insert_device
-//
-__global__ void insert_kernel(hashmap_engine *h,
-                              uint32_t *words,
-                              uint32_t *offset,
-                              uint32_t *data,
-                              uint32_t length_offset,
-                              uint32_t length_bytes);
+    uint32_t *key_offsets;
+    uint32_t *key_lengths;
+    uint32_t *values;
 
-//
-////LOOKUP KERNEL -> lookup_device
-//
-__global__ void lookup_kernel(hashmap_engine *h,
-                              uint32_t *qwords,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes,
-                              uint32_t *results);
+    uint32_t *overflow_offsets;
+    uint32_t *overflow_lengths;
+    uint32_t *overflow_values;
 
-#endif
+    uint32_t *failed_inserts;
+} HashmapEngine;
+
+// Batch reservation is deliberately separate from insertion. Kernel launches
+// in one CUDA stream are ordered, so every insertion block observes the same
+// batch_base without relying on an invalid grid-wide barrier.
+__global__ void reserve_batch_kernel(HashmapEngine *engine,
+                                     uint32_t total_bytes,
+                                     uint32_t key_count);
+
+__global__ void insert_kernel(HashmapEngine *engine,
+                              const uint8_t *bytes,
+                              const uint32_t *offsets,
+                              const uint32_t *lengths,
+                              const uint32_t *input_values,
+                              uint32_t key_count,
+                              uint32_t total_bytes);
+
+__global__ void lookup_kernel(const HashmapEngine *engine,
+                              const uint8_t *query_bytes,
+                              const uint32_t *query_offsets,
+                              const uint32_t *query_lengths,
+                              uint32_t query_count,
+                              uint32_t total_query_bytes,
+                              uint32_t *results,
+                              uint8_t *found);
+
+__global__ void delete_kernel(HashmapEngine *engine,
+                              const uint8_t *query_bytes,
+                              const uint32_t *query_offsets,
+                              const uint32_t *query_lengths,
+                              uint32_t query_count,
+                              uint32_t total_query_bytes,
+                              uint8_t *deleted);

@@ -1,24 +1,15 @@
-#include <cstdint>
-#ifndef HASH
-#define HASH
+#pragma once
 
-// if linker errors are persistent here (in xh332) try :
-// 1)making it inline(__inline__)
-// 2)forcing it inline :) (__forceinline__)(thank god for c++ , if you have to resort to this :))
+#include <cuda_runtime.h>
 
-__device__ void xh332(
-    uint8_t *bytes,
-    uint32_t tid,
-    uint32_t start,
-    uint32_t len,
-    uint32_t posn,
-    uint32_t wid,
-    uint32_t *offset,
-    uint32_t *words,
-    uint32_t &res1,
-    uint32_t &res2,
-    uint32_t &res3,
-    uint32_t length_bytes,
-    uint32_t length_offset);
+#include <stdint.h>
 
-#endif
+// Computes three independently seeded XXH32 hashes for one byte string.
+// Exactly four threads in the caller's cooperative-group tile participate.
+// The final values are defined in tile lane 0 and are broadcast by callers.
+__device__ void hash3_xxh32(const uint8_t *bytes,
+                            uint32_t start,
+                            uint32_t length,
+                            uint32_t *hash1,
+                            uint32_t *hash2,
+                            uint32_t *hash3);

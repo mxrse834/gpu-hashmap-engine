@@ -1,1007 +1,422 @@
-// #include <thrust/device_vector.h>
-#include <iostream>
-#include <cooperative_groups.h>
-#include <cuda_runtime.h>
-#include <stdexcept>
-#include <cstdint>
+#include "hashmap.cuh"
+
 #include "hash.cuh"
-#define TPB 256 /// threads per block 256
-#define BPG 140 /// blocks per grid 140
-using namespace std;
+
+#include <cooperative_groups.h>
+
 namespace cg = cooperative_groups;
 
-typedef struct hashmap_engine
+typedef cg::thread_block_tile<4> Tile;
+
+static __device__ __forceinline__ bool range_is_valid(uint32_t start,
+                                                       uint32_t length,
+                                                       uint32_t total_bytes)
 {
-    uint32_t n = 10000000;
-    uint32_t o_n = 100000;
-    uint32_t master_byte_current = 0;
-    uint8_t *master_bytes = NULL;
-    uint32_t last_offset_val = 0;
-    uint32_t *key = NULL;
-    uint32_t *value = NULL;
-    uint32_t *o_key = NULL;
-    uint32_t *o_value = NULL;
-} hashmap_engine;
-
-__device__ int count = 0;
-
-////INSERT DEVICE (PER THREAD)
-// Kernel: Insert Key-Value Pair into Hash Table (our goal in this part is to generate a key for a specific value to get a key,value pair and store this in our "dictionary")
-__device__ void insert_device(
-    hashmap_engine *h,
-    uint32_t *words,
-    uint32_t lov,
-    uint32_t mbc,
-    uint32_t *offset,
-    uint32_t *data,
-    uint32_t length_offset,
-    uint32_t length_bytes)
-{
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-
-    // implementation of buffering into shared memory to deal with waves efficiently
-    // inour implementation we have 1 wave = 256*160 = 40960threads( maximum number of threads that can exist on the 40 SM's of 2070 super)
-    // each SM can schedule a maximum of 64 warps at a time, and ttrue hardware parallelism is only 4 warp schedulers selecting 4 warps to run at a given time
-    // theres zero cost abstraction as the warps are already resident on the gpu
-    // above is a example of our current gpu(check README)
-    // shared memory calculation per wave ->
-    // 1) 4 threads map to one shared memory string therefore 1 offset
-    // 2) therefore we have 256/4= 64 offsets per block each uint32_t therefore 256 bytes per block (there is a hrdware limit of 48kb(configurable upto 64kb) which we are well within)
-    // 3) total shared memory used(for 1 wave is) is 40960 bytes which is 40kb
-    //    (Dont misinterpret the wording, since shared memory is unique to each block we will have 264(bytes per block) * 4(blocks per sm)= about 1KB
-    // 4) trying to understand hardware limitation->
-    //    in this  case we have 4 blocks that will be in a SM at any point in time each SM has its own shared memory limited to exactly 48(or 64)
-    //    so we have 48/4=12 kb for each block and each block requires 256 b to store offsets + 8 bytes for storing master_offset_current and master_byte_current
-    //    in total we are using 1kb(for calc look at 3)) out of 12288(12kb).
-    // 5) SETUP FOR SINGLE BUFFERING
-
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    uint8_t *bytes = reinterpret_cast<uint8_t *>(words); // ensure 4 byte padding
-    // uint32_t *words = reinterpret_cast<uint32_t *>(byte);
-    /*uint32_t *master_vals = (uint32_t *)shmem;
-    master_vals[0] = master_byte_currentv;
-    master_vals[1] = master_offset_currentv;
-    master_byte_current = master_vals[0];
-    master_offset_current = master_vals[1];
-    // uint8_t *bytes = (uint8_t *)(master_vals + 2);
-    uint32_t *words = (uint32_t *)(master_vals + 2);
-    uint32_t *offset = (uint32_t *)(words + (length_bytes / 4));*/
-    for (uint32_t wid = tid / 4; wid < length_offset + 1; wid += (gridDim.x * blockDim.x) / 4) /// IMPORTANT : the +1 ive pu there is to ensure that all threads entire one last loop to make sure i can use tile.sync() effectively everywhere which was causing an infinite hang due to alr exited threads
-    {
-        tile.sync();
-        if (wid == length_offset)
-        {
-            break;
-        }
-        uint32_t start = offset[wid];
-        uint32_t len;
-        if (wid < length_offset - 1)
-            len = offset[wid + 1] - start;
-        else
-            len = length_bytes - start;
-        uint32_t posn = (start / 4) + tile.thread_rank();
-
-        uint32_t results_h1;
-        uint32_t results_h2;
-        uint32_t results_h3;
-        // calling the custom hashing function from the included hash.cuh file
-        xh332(
-            bytes,
-            tid, start, len, posn, wid,
-            offset, words,
-            results_h1,
-            results_h2,
-            results_h3,
-            length_bytes,
-            length_offset);
-
-        // Reduce raw 32-bit hashes into table index range
-        results_h1 = results_h1 % h->n;
-        results_h2 = results_h2 % h->n;
-        results_h3 = results_h3 % h->n;
-        /////////////////////////// DEBUG PORTION ////////////////////////////
-        if (tile.thread_rank() == 0)
-        {
-            printf("THREAD %d: Before reading hash table, results_h1=%u\n",
-                   tile.thread_rank(), results_h1);
-
-            printf("THREAD %d: Before reading hash table, results_h2=%u\n",
-                   tile.thread_rank(), results_h2);
-
-            printf("THREAD %d: Before reading hash table, results_h3=%u\n",
-                   tile.thread_rank(), results_h3);
-        }
-        /////////////////////////////////////////////////////////////////////
-        // each thread takes up one string to copy into the master bytes
-
-        // uint32_t editaT = offset[wid];
-        // uint32_t tile_no = tile.thread_rank();
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            *(uint32_t *)(h->master_bytes + mbc + start + i) = *(uint32_t *)(bytes + start + i);
-            // the unfortunate method we must use of tricking the compiler into type_casting then dereferencing
-        }
-        // for trailing bytes(ie <4 (non ints))
-        uint32_t tail = (len & ~3); // last 4 byte "copyable" part
-        if (tail + tile.thread_rank() < len)
-            h->master_bytes[mbc + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
-
-        //(each wid : one offset)
-        /*if (tile_no == 0)
-            master_offset[master_offset_current + wid + 1] = master_offset[master_offset_current] + editaT;*/
-
-        // tile.sync(); // upto this point we have hashed the input value with 3 different seeds stored in 3 different arrays results_h1,h2,h3
-        /*pif (tid == 0)
-        {
-            master_offset_current += length_offset;
-            master_byte_current += length_bytes;
-        }
-        tile.sync();*/
-        if (tile.thread_rank() == 0)
-        {
-            if (h->key[results_h1] == 0xFFFFFFFF)
-            {
-                if (atomicCAS(&h->key[results_h1], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
-                {
-                    h->value[results_h1] = data[wid];
-                    if (wid == 0)
-                    {
-                        printf("THREAD %d: After reading hash table, value at offset: results_h1 in array:key=%u\n",
-                               tile.thread_rank(), h->key[results_h1]);
-                    }
-                    continue;
-                }
-            }
-
-            if (h->key[results_h2] == 0xFFFFFFFF)
-            {
-
-                if (atomicCAS(&h->key[results_h2], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
-                {
-                    h->value[results_h2] = data[wid];
-                    if (wid == 0)
-                    {
-                        printf("THREAD %d: After reading hash table, value at offset: results_h2 in array:key=%u\n",
-                               tile.thread_rank(), h->key[results_h2]);
-                    }
-                    continue;
-                }
-            }
-            if (h->key[results_h3] == 0xFFFFFFFF)
-            {
-                if (atomicCAS(&h->key[results_h3], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
-                {
-                    h->value[results_h3] = data[wid];
-                    if (wid == 0)
-                    {
-                        printf("THREAD %d: After reading hash table, value at offset: results_h3 in array:key=%u\n",
-                               tile.thread_rank(), h->key[results_h3]);
-                    }
-                    continue;
-                }
-            }
-            // upto this point we have the key,value pairs inserted into the hashmap most likely
-            // (unless there is collision even after the third hash is calculcated so now we go for probing/overflow buffer)
-            uint32_t overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n;
-            for (int i = 0; i < h->o_n; i++)
-            {
-                int idx = (overflow_slot + i) % h->o_n; //  the for loop over "i" allows for linear probing
-                if (atomicCAS(&h->o_key[idx], 0xFFFFFFFF, mbc + offset[wid]) == 0xFFFFFFFF)
-                {
-                    h->o_value[idx] = data[wid];
-                    break;
-                }
-            }
-        }
-        /*if (tid == 0)
-                  {
-                      MASTERBYTES.insert(MASTERBYTES.end(), bytes, bytes + sizeof(bytes) / sizeof(bytes[0]));
-                      MASTEROFFSET.insert(MASTEROFFSET.end(), offset, offset + sizeof(offset) / sizeof(offset[0]));
-                  }*/
-    }
-    if (blockIdx.x == 0 && threadIdx.x == 1)
-    {
-        // h->last_offset_val += (offset[length_offset - 1]+len); // length_offset is a cumulative aggregation
-        h->master_byte_current += length_bytes; // length_bytes is not its simply a counter
-    }
-    /////////////////DEBUG PART///////////////////////////
-
-    ///////////////////////////////
+    return start <= total_bytes && length <= total_bytes - start;
 }
 
-// Kernel: Lookup Key in Hash Table
-
-__device__ void lookup_device(hashmap_engine *h,
-                              uint32_t *qwords,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes,
-                              uint32_t *results)
+static __device__ __forceinline__ uint32_t overflow_start(uint32_t hash1,
+                                                           uint32_t hash2,
+                                                           uint32_t hash3,
+                                                           uint32_t capacity)
 {
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    uint8_t *qbytes = reinterpret_cast<uint8_t *>(qwords); // ensure 4 byte padding
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
+    return ((hash1 ^ hash2 ^ hash3) * 0x9E3779B9u) % capacity;
+}
 
-    for (uint wid = tid / 4; wid < length_qoffset + 1; wid += (blockDim.x * gridDim.x) / 4)
+static __device__ bool key_equals(Tile tile,
+                                  const HashmapEngine *engine,
+                                  uint32_t stored_offset,
+                                  uint32_t stored_length,
+                                  const uint8_t *query_bytes,
+                                  uint32_t query_offset,
+                                  uint32_t query_length)
+{
+    bool different = stored_length != query_length;
+
+    if (!different)
     {
-        tile.sync();
-        if (wid == length_qoffset)
+        for (uint32_t i = tile.thread_rank(); i < query_length; i += tile.size())
         {
-            break;
+            if (engine->master_bytes[stored_offset + i] != query_bytes[query_offset + i])
+                different = true;
         }
-        uint32_t start = qoffset[wid];
-        uint32_t len;
-        if (wid < length_qoffset - 1)
-            len = qoffset[wid + 1] - start;
-        else
-            len = length_qbytes - start;
+    }
 
-        uint32_t posn = (start / 4) + tile.thread_rank();
-        uint32_t results_h1, results_h2, results_h3;
-        uint32_t os1, os2, os3;
+    return !tile.any(different);
+}
 
-        xh332(qbytes, tid, start, len, posn, wid, qoffset,
-              qwords,
-              results_h1, results_h2, results_h3,
-              length_qbytes, length_qoffset);
-        tile.sync();
-        if (tile.thread_rank() == 0)
+static __device__ bool slot_matches(Tile tile,
+                                    const HashmapEngine *engine,
+                                    const uint32_t *slot_offsets,
+                                    const uint32_t *slot_lengths,
+                                    const uint32_t *slot_values,
+                                    uint32_t slot,
+                                    const uint8_t *query_bytes,
+                                    uint32_t query_offset,
+                                    uint32_t query_length,
+                                    uint32_t *matched_value,
+                                    bool *is_empty)
+{
+    uint32_t stored_offset = HASHMAP_EMPTY_SLOT;
+    uint32_t stored_length = 0u;
+    uint32_t stored_value = 0u;
+
+    if (tile.thread_rank() == 0u)
+    {
+        stored_offset = slot_offsets[slot];
+        if (stored_offset != HASHMAP_EMPTY_SLOT &&
+            stored_offset != HASHMAP_TOMBSTONE_SLOT)
         {
-            results_h1 = results_h1 % h->n;
-            results_h2 = results_h2 % h->n;
-            results_h3 = results_h3 % h->n;
-            os1 = h->key[results_h1];
-            os2 = h->key[results_h2];
-            os3 = h->key[results_h3];
-            // ========== DEBUG BLOCK START ==========
-
-            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h1) =%u\n",
-                   tile.thread_rank(), results_h1);
-
-            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h2) =%u\n",
-                   tile.thread_rank(), results_h2);
-
-            printf("THREAD %d: We probe at this address in out hash table to get our offset in the master bytes(results_h3) =%u\n",
-                   tile.thread_rank(), results_h3);
-            printf("THREAD 0: these are the 3 offsets in master bytes that may hold the string.Read complete - os1=%u, os2=%u, os3=%u\n",
-                   os1, os2, os3);
-            ///////////////////////////////////////////
+            stored_length = slot_lengths[slot];
+            stored_value = slot_values[slot];
         }
+    }
 
-        os1 = tile.shfl(os1, 0);
+    stored_offset = tile.shfl(stored_offset, 0);
+    stored_length = tile.shfl(stored_length, 0);
+    stored_value = tile.shfl(stored_value, 0);
+    *is_empty = stored_offset == HASHMAP_EMPTY_SLOT;
 
-        printf("THREAD %d: After shuffle,this is the 1st offsets in master bytes that may hold the string. os1 value = %u\n",
-               tile.thread_rank(), os1);
+    if (*is_empty || stored_offset == HASHMAP_TOMBSTONE_SLOT)
+        return false;
 
-        if (os1 == 0xFFFFFFFF)
+    if (!range_is_valid(stored_offset, stored_length, engine->master_byte_current))
+        return false;
+
+    const bool matches = key_equals(tile, engine, stored_offset, stored_length,
+                                    query_bytes, query_offset, query_length);
+    if (matches)
+        *matched_value = stored_value;
+    return matches;
+}
+
+static __device__ bool claim_slot(uint32_t *slot_offsets,
+                                  uint32_t *slot_lengths,
+                                  uint32_t *slot_values,
+                                  uint32_t slot,
+                                  uint32_t key_offset,
+                                  uint32_t key_length,
+                                  uint32_t value)
+{
+    uint32_t previous = atomicCAS(slot_offsets + slot, HASHMAP_EMPTY_SLOT, key_offset);
+    if (previous != HASHMAP_EMPTY_SLOT)
+    {
+        previous = atomicCAS(slot_offsets + slot, HASHMAP_TOMBSTONE_SLOT, key_offset);
+        if (previous != HASHMAP_TOMBSTONE_SLOT)
+            return false;
+    }
+
+    slot_lengths[slot] = key_length;
+    slot_values[slot] = value;
+    return true;
+}
+
+static __device__ bool delete_from_slot(Tile tile,
+                                        HashmapEngine *engine,
+                                        uint32_t *slot_offsets,
+                                        const uint32_t *slot_lengths,
+                                        uint32_t slot,
+                                        const uint8_t *query_bytes,
+                                        uint32_t query_offset,
+                                        uint32_t query_length,
+                                        bool *is_empty)
+{
+    uint32_t stored_offset = HASHMAP_EMPTY_SLOT;
+    uint32_t stored_length = 0u;
+
+    if (tile.thread_rank() == 0u)
+    {
+        stored_offset = slot_offsets[slot];
+        if (stored_offset != HASHMAP_EMPTY_SLOT &&
+            stored_offset != HASHMAP_TOMBSTONE_SLOT)
+            stored_length = slot_lengths[slot];
+    }
+
+    stored_offset = tile.shfl(stored_offset, 0);
+    stored_length = tile.shfl(stored_length, 0);
+    *is_empty = stored_offset == HASHMAP_EMPTY_SLOT;
+
+    if (*is_empty || stored_offset == HASHMAP_TOMBSTONE_SLOT ||
+        !range_is_valid(stored_offset, stored_length, engine->master_byte_current))
+        return false;
+
+    if (!key_equals(tile, engine, stored_offset, stored_length,
+                    query_bytes, query_offset, query_length))
+        return false;
+
+    uint32_t deleted = 0u;
+    if (tile.thread_rank() == 0u)
+        deleted = atomicCAS(slot_offsets + slot, stored_offset,
+                            HASHMAP_TOMBSTONE_SLOT) == stored_offset;
+    return tile.shfl(deleted, 0) != 0u;
+}
+
+__global__ void reserve_batch_kernel(HashmapEngine *engine,
+                                     uint32_t total_bytes,
+                                     uint32_t key_count)
+{
+    if (blockIdx.x != 0u || threadIdx.x != 0u)
+        return;
+
+    const uint32_t current = engine->master_byte_current;
+    if (total_bytes > engine->byte_capacity || current > engine->byte_capacity - total_bytes)
+    {
+        engine->batch_base = HASHMAP_EMPTY_SLOT;
+        *engine->failed_inserts += key_count;
+        return;
+    }
+
+    engine->batch_base = current;
+    engine->master_byte_current = current + total_bytes;
+}
+
+__global__ void insert_kernel(HashmapEngine *engine,
+                              const uint8_t *bytes,
+                              const uint32_t *offsets,
+                              const uint32_t *lengths,
+                              const uint32_t *input_values,
+                              uint32_t key_count,
+                              uint32_t total_bytes)
+{
+    if ((blockDim.x % 4u) != 0u || engine->batch_base == HASHMAP_EMPTY_SLOT)
+        return;
+
+    const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t first_key = global_thread / 4u;
+    const uint64_t key_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
+
+    for (uint64_t key_index64 = first_key; key_index64 < key_count;
+         key_index64 += key_stride)
+    {
+        const uint32_t key_index = (uint32_t)key_index64;
+        const uint32_t start = offsets[key_index];
+        const uint32_t length = lengths[key_index];
+
+        if (!range_is_valid(start, length, total_bytes))
         {
-            if (tile.thread_rank() == 0)
-            {
-                results[wid] = 0xFFFFFFFF;
-                printf("THREAD 0: os1 is empty, set results[%u] = 0xFFFFFFFF\nThis imples that the (key,value) likely does not exist in the hash table\n", wid);
-            }
+            if (tile.thread_rank() == 0u)
+                atomicAdd(engine->failed_inserts, 1u);
             continue;
         }
 
-        if (tile.thread_rank() == 0)
-        {
-            printf("THREAD 0: os1 is NOT empty, proceeding to compare memory\n");
-        }
+        const uint32_t stored_offset = engine->batch_base + start;
+        for (uint32_t i = tile.thread_rank(); i < length; i += tile.size())
+            engine->master_bytes[stored_offset + i] = bytes[start + i];
 
-        bool failed = false;
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
+        uint32_t hash1 = 0u;
+        uint32_t hash2 = 0u;
+        uint32_t hash3 = 0u;
+        hash3_xxh32(bytes, start, length, &hash1, &hash2, &hash3);
 
-        uint32_t tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
+        if (tile.thread_rank() == 0u)
         {
-            if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
+            const uint32_t slots[3] = {
+                hash1 % engine->primary_capacity,
+                hash2 % engine->primary_capacity,
+                hash3 % engine->primary_capacity,
+            };
+
+            bool inserted = false;
+            for (uint32_t candidate = 0u; candidate < 3u && !inserted; ++candidate)
             {
-                failed = true;
+                inserted = claim_slot(engine->key_offsets, engine->key_lengths,
+                                      engine->values, slots[candidate], stored_offset,
+                                      length, input_values[key_index]);
             }
-        }
-        // atomicCAS(&count, 0, 0); // reset count for next string
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
+
+            if (!inserted)
             {
-                results[wid] = h->value[results_h1];
-                printf("MATCHING STRING WAS FOUND\n");
-                int old = atomicAdd(&count, 1);
-                printf("%d\n", old);
-                if (old == length_qoffset - 1  && tile.thread_rank() ==0)
+                const uint32_t first_overflow_slot =
+                    overflow_start(hash1, hash2, hash3, engine->overflow_capacity);
+                for (uint32_t probe = 0u; probe < engine->overflow_capacity; ++probe)
                 {
-                    printf("All strings found, exiting lookup kernel\n");
+                    const uint32_t slot =
+                        (first_overflow_slot + probe) % engine->overflow_capacity;
+                    if (claim_slot(engine->overflow_offsets, engine->overflow_lengths,
+                                   engine->overflow_values, slot, stored_offset, length,
+                                   input_values[key_index]))
+                    {
+                        inserted = true;
+                        break;
+                    }
                 }
             }
+
+            if (!inserted)
+                atomicAdd(engine->failed_inserts, 1u);
+        }
+    }
+}
+
+__global__ void lookup_kernel(const HashmapEngine *engine,
+                              const uint8_t *query_bytes,
+                              const uint32_t *query_offsets,
+                              const uint32_t *query_lengths,
+                              uint32_t query_count,
+                              uint32_t total_query_bytes,
+                              uint32_t *results,
+                              uint8_t *found)
+{
+    if ((blockDim.x % 4u) != 0u)
+        return;
+
+    const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t first_query = global_thread / 4u;
+    const uint64_t query_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
+
+    for (uint64_t query_index64 = first_query; query_index64 < query_count;
+         query_index64 += query_stride)
+    {
+        const uint32_t query_index = (uint32_t)query_index64;
+        const uint32_t start = query_offsets[query_index];
+        const uint32_t length = query_lengths[query_index];
+
+        if (tile.thread_rank() == 0u)
+        {
+            found[query_index] = 0u;
+            results[query_index] = 0u;
+        }
+
+        if (!range_is_valid(start, length, total_query_bytes))
+            continue;
+
+        uint32_t hash1 = 0u;
+        uint32_t hash2 = 0u;
+        uint32_t hash3 = 0u;
+        hash3_xxh32(query_bytes, start, length, &hash1, &hash2, &hash3);
+
+        const uint32_t raw_hash1 = tile.shfl(hash1, 0);
+        const uint32_t raw_hash2 = tile.shfl(hash2, 0);
+        const uint32_t raw_hash3 = tile.shfl(hash3, 0);
+        const uint32_t slots[3] = {
+            raw_hash1 % engine->primary_capacity,
+            raw_hash2 % engine->primary_capacity,
+            raw_hash3 % engine->primary_capacity,
+        };
+
+        bool matched = false;
+        uint32_t matched_value = 0u;
+        for (uint32_t candidate = 0u; candidate < 3u && !matched; ++candidate)
+        {
+            bool is_empty = false;
+            matched = slot_matches(tile, engine, engine->key_offsets, engine->key_lengths,
+                                   engine->values, slots[candidate], query_bytes, start,
+                                   length, &matched_value, &is_empty);
+        }
+
+        if (matched)
+        {
+            if (tile.thread_rank() == 0u)
+            {
+                results[query_index] = matched_value;
+                found[query_index] = 1u;
+            }
             continue;
         }
 
-        if (tile.thread_rank() == 0)
-            printf("Not found will now probe at os2: %u", os2);
-
-        os2 = tile.shfl(os2, 0);
-        failed = false;
-
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        const uint32_t first_overflow_slot =
+            overflow_start(raw_hash1, raw_hash2, raw_hash3,
+                           engine->overflow_capacity);
+        for (uint32_t probe = 0u; probe < engine->overflow_capacity; ++probe)
         {
-            if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
+            const uint32_t slot =
+                (first_overflow_slot + probe) % engine->overflow_capacity;
+            bool is_empty = false;
+            matched = slot_matches(tile, engine, engine->overflow_offsets,
+                                   engine->overflow_lengths, engine->overflow_values,
+                                   slot, query_bytes, start, length, &matched_value,
+                                   &is_empty);
+            if (matched || is_empty)
                 break;
         }
 
-        tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
+        if (matched && tile.thread_rank() == 0u)
         {
-            if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
+            results[query_index] = matched_value;
+            found[query_index] = 1u;
         }
+    }
+}
 
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->value[results_h2];
+__global__ void delete_kernel(HashmapEngine *engine,
+                              const uint8_t *query_bytes,
+                              const uint32_t *query_offsets,
+                              const uint32_t *query_lengths,
+                              uint32_t query_count,
+                              uint32_t total_query_bytes,
+                              uint8_t *deleted)
+{
+    if ((blockDim.x % 4u) != 0u)
+        return;
+
+    const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t first_query = global_thread / 4u;
+    const uint64_t query_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
+
+    for (uint64_t query_index64 = first_query; query_index64 < query_count;
+         query_index64 += query_stride)
+    {
+        const uint32_t query_index = (uint32_t)query_index64;
+        const uint32_t start = query_offsets[query_index];
+        const uint32_t length = query_lengths[query_index];
+
+        if (tile.thread_rank() == 0u)
+            deleted[query_index] = 0u;
+
+        if (!range_is_valid(start, length, total_query_bytes))
             continue;
+
+        uint32_t hash1 = 0u;
+        uint32_t hash2 = 0u;
+        uint32_t hash3 = 0u;
+        hash3_xxh32(query_bytes, start, length, &hash1, &hash2, &hash3);
+
+        const uint32_t raw_hash1 = tile.shfl(hash1, 0);
+        const uint32_t raw_hash2 = tile.shfl(hash2, 0);
+        const uint32_t raw_hash3 = tile.shfl(hash3, 0);
+        const uint32_t slots[3] = {
+            raw_hash1 % engine->primary_capacity,
+            raw_hash2 % engine->primary_capacity,
+            raw_hash3 % engine->primary_capacity,
+        };
+
+        bool was_deleted = false;
+        for (uint32_t candidate = 0u; candidate < 3u && !was_deleted; ++candidate)
+        {
+            bool is_empty = false;
+            was_deleted = delete_from_slot(tile, engine, engine->key_offsets,
+                                           engine->key_lengths, slots[candidate],
+                                           query_bytes, start, length, &is_empty);
         }
 
-        if (tile.thread_rank() == 0)
-            printf("Not found will now probe at os3: %u", os3);
-
-        os3 = tile.shfl(os3, 0);
-        failed = false;
-
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
+        if (!was_deleted)
         {
-            if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
+            const uint32_t first_overflow_slot =
+                overflow_start(raw_hash1, raw_hash2, raw_hash3,
+                               engine->overflow_capacity);
+            for (uint32_t probe = 0u; probe < engine->overflow_capacity; ++probe)
             {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-
-        tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
-        }
-
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->value[results_h3];
-            continue;
-        }
-
-        uint32_t osb;
-        uint32_t overflow_slot;
-
-        if (tile.thread_rank() == 0)
-        {
-            overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n;
-            if (tile.thread_rank() == 0)
-                printf("Not found will now probe at overflow slot: %u", overflow_slot);
-        }
-
-        overflow_slot = tile.shfl(overflow_slot, 0);
-
-        bool found = false;
-        for (int l = 0; l < 50; l++)
-        {
-            failed = false;
-
-            if (tile.thread_rank() == 0)
-            {
-                osb = h->o_key[(overflow_slot + l) % h->o_n];
-            }
-            osb = tile.shfl(osb, 0);
-
-            if (osb == 0xFFFFFFFF)
-            {
-                if (tile.thread_rank() == 0)
-                    results[wid] = 0xFFFFFFFF;
-                break;
-            }
-
-            i = tile.thread_rank();
-            for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-            {
-                if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-                {
-                    failed = true;
-                }
-                if (tile.any(failed))
+                const uint32_t slot =
+                    (first_overflow_slot + probe) % engine->overflow_capacity;
+                bool is_empty = false;
+                was_deleted = delete_from_slot(tile, engine, engine->overflow_offsets,
+                                               engine->overflow_lengths, slot,
+                                               query_bytes, start, length, &is_empty);
+                if (was_deleted || is_empty)
                     break;
             }
-
-            tail = (len & ~3);
-            if (tail + tile.thread_rank() < len)
-            {
-                if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-                {
-                    failed = true;
-                }
-            }
-
-            failed = tile.any(failed);
-            if (!failed)
-            {
-                if (tile.thread_rank() == 0)
-                    results[wid] = h->o_value[(overflow_slot + l) % h->o_n];
-                found = true;
-                break;
-            }
         }
 
-        if (!found && tile.thread_rank() == 0)
-        {
-            results[wid] = 0xFFFFFFFF;
-        }
+        if (was_deleted && tile.thread_rank() == 0u)
+            deleted[query_index] = 1u;
     }
-}
-/*
-__device__ void lookup_device(hashmap_engine *h,
-                              uint32_t *qwords,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes,
-                              uint32_t *results)
-{
-    // we need to first apply the 3 hash functions on our input , then we must must calc address ( check overflow buffer also)
-    // and probe until we find it , now we return the data associated with it if found
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    // cg::thread_block_tile<32> warp = cg::tiled_partition<32>(cg::this_thread_block());
-    uint8_t *qbytes = reinterpret_cast<uint8_t *>(qwords); // ensure 4 byte padding
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    for (uint wid = tid / 4; wid < length_qoffset + 1; wid += (blockDim.x * gridDim.x) / 4)
-    {
-        tile.sync();
-        if (wid == length_qoffset)
-        {
-            break;
-        }
-        uint32_t start = qoffset[wid];
-        uint32_t len;
-        if (wid < length_qoffset - 1)
-            len = qoffset[wid + 1] - start;
-        else
-            len = length_qbytes - start;
-        uint32_t posn = (start / 4) + tile.thread_rank();
-        uint32_t results_h1;
-        uint32_t results_h2;
-        uint32_t results_h3;
-        uint32_t os1;
-        uint32_t os2;
-        uint32_t os3;
-        xh332(
-            qbytes,
-            tid, start, len, posn, wid,
-            qoffset, qwords,
-            results_h1,
-            results_h2,
-            results_h3,
-            length_qbytes,
-            length_qoffset);
-        // Ensure hash indices are within primary table bounds
-        results_h1 = results_h1 % h->n;
-        results_h2 = results_h2 % h->n;
-        results_h3 = results_h3 % h->n;
-        // now we have each thread_rank==0 holding three variables namely results_h1,results_h2,results_h3
-        // once lookup kernel finds the hashed value(ie the address), we check the offset for the master byte array stored there , then we go to that offset in master and check if both are equal
-        if (tile.thread_rank() == 0)
-        {
-            os1 = h->key[results_h1];
-            os2 = h->key[results_h2];
-            os3 = h->key[results_h3];
-        }
-        /////////////////////////// DEBUG PORTION ////////////////////////////
-        if (tile.thread_rank() == 0)
-        {
-            printf("THREAD %d: Before reading hash table, results_h1=%u\n",
-                   tile.thread_rank(), results_h1);
-
-            printf("THREAD %d: Before reading hash table, results_h2=%u\n",
-                   tile.thread_rank(), results_h2);
-
-            printf("THREAD %d: Before reading hash table, results_h3=%u\n",
-                   tile.thread_rank(), results_h3);
-        }
-        if(tile.thread_rank()==0)
-        {
-            printf("THREAD %u : \n os1= ")
-        }
-        /////////////////////////////////////////////////////////////////////
-
-        os1 = tile.shfl(os1, 0); // now all threads hold the value of offset (given to us by our first hash)( ie all threads in a tile will hold the same offset value to probe at)
-        if (os1 == 0xFFFFFFFF)
-        {
-            if (tile.thread_rank() == 0)
-            {
-                results[wid] = 0xFFFFFFFF;
-            }
-            continue;
-        }
-        bool failed = false;*/
-/*
-int i = tile.thread_rank();
-for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-{
-    *(uint32_t *)(h->master_bytes + h->master_byte_current + start + i) = *(uint32_t *)(bytes + start + i);
-    // the unfortunate trick we must use of tricking the compiler into type_casting then dereferencing
-}
-// for trailing bytes(ie <4 (non ints))
-uint32_t tail = (len & ~3); // last 4 byte "copyable" part
-if (tail + tile.thread_rank() < len)
-    h->master_bytes[h->master_byte_current + start + tail + tile.thread_rank()] = bytes[start + tail + tile.thread_rank()]; // CODE FOR COPYING INTO MASTERBYTE
-*/
-
-//// here our 1st loop compares in groups of 16 bytes( or maybe more realistically MULTIPLES of 4 (since each thread does 4 bytes and threads are concurrent))
-//// so here we can ensure we will only have at max 3 trailing bytes ledt that may not be comapred
-//// conveniently(not so much as intentionally :)) we have exactly 4 threads ina tile so each can do a byte by byte comp in a single iteration to satisfy a maximum case of 3)
-/*
-    int i = tile.thread_rank();
-    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-    {
-        if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-        {
-            failed = true;
-        }
-        if (tile.any(failed))
-            break;
-    }
-    // for trailing bytes(ie <4 (non ints))
-    uint32_t tail = (len & ~3); // last 4 byte "copyable" part
-    if (tail + tile.thread_rank() < len)
-    {
-        if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-        {
-            failed = true;
-        }
-    }
-    // we cannot return threads until all the for loops have completed for a given string
-    failed = tile.any(failed);
-    if (!failed)
-    {
-        if (tile.thread_rank() == 0)
-            results[wid] = h->value[results_h1];
-        continue;
-    }
-    ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
-    /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
-    // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
-
-    os2 = tile.shfl(os2, 0);
-    failed = false;
-
-    i = tile.thread_rank();
-    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-    {
-        if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-        {
-            failed = true;
-        }
-        if (tile.any(failed))
-            break;
-    }
-    // for trailing bytes(ie <4 (non ints))
-    tail = (len & ~3); // last 4 byte "copyable" part
-    if (tail + tile.thread_rank() < len)
-    {
-        if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-        {
-            failed = true;
-        }
-    }
-    // we cannot return threads until all the for loops have completed for a given string
-    failed = tile.any(failed);
-    if (!failed)
-    {
-        if (tile.thread_rank() == 0)
-            results[wid] = h->value[results_h2];
-        continue;
-    }
-
-    //////3RD HASH
-    ///// essentially what were doing here is returning all the threads from the function that have found the key value pair from the first hash function itself
-    /// when threads are returned the entire tile of threads will be returned as if one thread fails the full tile has failed)
-    // all the threads that fail the first function ie the key,value pair is not foud move to the 2nd for loop to probe the next hash function given location
-
-    os3 = tile.shfl(os3, 0);
-    failed = false;
-    i = tile.thread_rank();
-    for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-    {
-        if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-        {
-            failed = true;
-        }
-        if (tile.any(failed))
-            break;
-    }
-    // for trailing bytes(ie <4 (non ints))
-    tail = (len & ~3); // last 4 byte "copyable" part
-    if (tail + tile.thread_rank() < len)
-    {
-        if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()]) // CODE FOR COPYING INTO MASTERBYTE
-        {
-            failed = true;
-        }
-    }
-    // we cannot return threads until all the for loops have completed for a given string
-    failed = tile.any(failed);
-    if (!failed)
-    {
-        if (tile.thread_rank() == 0)
-            results[wid] = h->value[results_h3];
-        continue;
-    }
-
-    ////////////////////////////***OVERFLOW LOGIC***
-    //
-    ////// on going through all these three hash funcitons our required kay , value pair is still not found we finally move on to our overflow hash table
-    ////// optimization: 1) if empty slot is encountered STOP check 2)ballot to check if found for early exit
-    //
-    /////////////CCCONTINUE FROM  HERE ////////////////////
-    uint32_t osb;
-    uint32_t overflow_slot;
-
-    if (tile.thread_rank() == 0)
-    {
-        overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n; // this will give the address in the overflow hash table
-    }
-    // osb = tile.shfl(osb, 0); /// osb is the base offset value in the real master bytes array per tile
-    overflow_slot = tile.shfl(overflow_slot, 0);
-    bool found = false;
-    for (int l = 0; l < 50; l++)
-    {
-        failed = false;
-        if (tile.thread_rank() == 0)
-        {
-            osb = h->o_key[(overflow_slot + l) % h->o_n];
-        }
-        osb = tile.shfl(osb, 0);
-
-        if (osb == 0xFFFFFFFF)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = 0xFFFFFFFF;
-            break;
-        }
-
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-        // Handle tail bytes
-        uint32_t tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
-        }
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                results[wid] = h->o_value[(overflow_slot + l) % h->o_n];
-            found = true;
-            break;
-        }
-    }
-    if (!found && tile.thread_rank() == 0)
-    {
-        results[wid] = 0xFFFFFFFF;
-    }
-}
-}*/
-
-// Kernel: Delete Key from Hash Table
-__device__ void delete_device(hashmap_engine *h,
-                              uint8_t *qbytes,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes)
-{
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-
-    for (uint wid = tid / 4; wid < length_qoffset; wid += (blockDim.x * gridDim.x) / 4)
-    {
-        uint32_t start = qoffset[wid];
-        uint32_t len;
-        if (wid < length_qoffset - 1)
-            len = qoffset[wid + 1] - start;
-        else
-            len = length_qbytes - start;
-
-        uint32_t posn = (start / 4) + tile.thread_rank();
-        uint32_t results_h1;
-        uint32_t results_h2;
-        uint32_t results_h3;
-        uint32_t os1;
-        uint32_t os2;
-        uint32_t os3;
-
-        xh332(
-            qbytes,
-            tid, start, len, posn, wid,
-            qoffset, qwords,
-            results_h1,
-            results_h2,
-            results_h3,
-            length_qbytes,
-            length_qoffset);
-
-        results_h1 = results_h1 % h->n;
-        results_h2 = results_h2 % h->n;
-        results_h3 = results_h3 % h->n;
-
-        if (tile.thread_rank() == 0)
-        {
-            os1 = h->key[results_h1];
-            os2 = h->key[results_h2];
-            os3 = h->key[results_h3];
-        }
-
-        // HASH 1
-        os1 = tile.shfl(os1, 0);
-        if (os1 == 0xFFFFFFFF)
-        {
-            continue;
-        }
-
-        bool failed = false;
-
-        // compare in 4-byte chunks
-        int i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os1 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-
-        // compare tail bytes
-        uint32_t tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os1 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
-        }
-
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            // Found at hash1, delete it
-            if (tile.thread_rank() == 0)
-                h->key[results_h1] = 0xFFFFFFFF;
-            continue; // Deleted, move to next query
-        }
-
-        // HASH 2
-        os2 = tile.shfl(os2, 0);
-        failed = false;
-
-        // compare in 4-byte chunks
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os2 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-
-        // compare tail bytes
-        tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os2 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
-        }
-
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                h->key[results_h2] = 0xFFFFFFFF;
-            continue;
-        }
-
-        //// HASH 3
-        os3 = tile.shfl(os3, 0);
-        failed = false;
-
-        // compare in 4-byte chunks
-        i = tile.thread_rank();
-        for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-        {
-            if (*(uint32_t *)(h->master_bytes + os3 + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-            {
-                failed = true;
-            }
-            if (tile.any(failed))
-                break;
-        }
-
-        // compare tail bytes
-        tail = (len & ~3);
-        if (tail + tile.thread_rank() < len)
-        {
-            if (h->master_bytes[os3 + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-            {
-                failed = true;
-            }
-        }
-
-        failed = tile.any(failed);
-        if (!failed)
-        {
-            if (tile.thread_rank() == 0)
-                h->key[results_h3] = 0xFFFFFFFF;
-            continue;
-        }
-
-        ///// in the condition that all three hashes fail we resorts to overflow table
-        uint32_t osb;
-        uint32_t overflow_slot;
-
-        if (tile.thread_rank() == 0)
-        {
-            overflow_slot = ((results_h1 ^ results_h2 ^ results_h3) * 0x9e3779b9) % h->o_n;
-        }
-        overflow_slot = tile.shfl(overflow_slot, 0);
-
-        for (int l = 0; l < 50; l++)
-        {
-            failed = false;
-
-            if (tile.thread_rank() == 0)
-            {
-                osb = h->o_key[(overflow_slot + l) % h->o_n];
-            }
-            osb = tile.shfl(osb, 0);
-
-            // such a key, value pair was never inserted
-            if (osb == 0xFFFFFFFF)
-            {
-                break;
-            }
-
-            // compare in 4-byte chunks
-            i = tile.thread_rank();
-            for (i = i << 2; i + 4 <= len; i += tile.size() << 2)
-            {
-                if (*(uint32_t *)(h->master_bytes + osb + i) != *(uint32_t *)(qbytes + qoffset[wid] + i))
-                {
-                    failed = true;
-                }
-                if (tile.any(failed))
-                    break;
-            }
-
-            // compare tail bytes
-            tail = (len & ~3);
-            if (tail + tile.thread_rank() < len)
-            {
-                if (h->master_bytes[osb + tail + tile.thread_rank()] != qbytes[qoffset[wid] + tail + tile.thread_rank()])
-                {
-                    failed = true;
-                }
-            }
-
-            failed = tile.any(failed);
-            if (!failed)
-            {
-                if (tile.thread_rank() == 0)
-                    h->o_key[(overflow_slot + l) % h->o_n] = 0xFFFFFFFF;
-                break; // Deleted, exit overflow loop
-            }
-        }
-        // delete is idempotent ,  deleting non existent key is a no op
-    }
-}
-//
-////LOOKUP KERNEL -> lookup_device
-//
-__global__ void lookup_kernel(hashmap_engine *h,
-                              uint32_t *qwords,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes,
-                              uint32_t *results)
-{
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    // uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    // uint32_t wid = tid / 4;
-    if (tid < length_qoffset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
-        qoffset[tid] = tid * 16;
-    __syncthreads();
-    lookup_device(h, qwords, qoffset, length_qoffset, length_qbytes, results);
-}
-
-//
-////INSERT KERNEL -> insert_device
-//
-__global__ void insert_kernel(hashmap_engine *h,
-                              uint32_t *words,
-                              uint32_t *offset,
-                              uint32_t *data,
-                              uint32_t length_offset,
-                              uint32_t length_bytes)
-{
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    // uint8_t *bytes = reinterpret_cast<uint8_t *>(words);
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    __shared__ uint32_t lov;
-    __shared__ uint32_t mbc;
-    // uint32_t wid = tid / 4;
-    if (tid < length_offset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
-        offset[tid] = tid * 16;
-    if (threadIdx.x == 1)
-    {
-        mbc = h->master_byte_current;
-        lov = h->last_offset_val;
-    }
-    __syncthreads();
-    insert_device(h, words, lov, mbc, offset, data, length_offset, length_bytes);
-}
-
-//
-////DELETE KERNEL -> delete_device
-//
-__global__ void delete_kernel(hashmap_engine *h,
-                              uint8_t *qbytes,
-                              uint32_t *qoffset,
-                              uint32_t length_qoffset,
-                              uint32_t length_qbytes)
-{
-    cg::thread_block_tile<4> tile = cg::tiled_partition<4>(cg::this_thread_block());
-    // uint32_t *qwords = reinterpret_cast<uint32_t *>(qbytes);
-    uint32_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-    // uint32_t wid = tid / 4;
-    if (tid <= length_qoffset) ////////////////////////COMEPLETELY CUSTOM SETUP FOR APPLICATION 1
-        qoffset[tid] = tid * 16;
-    delete_device(h, qbytes, qoffset, length_qoffset, length_qbytes);
 }
