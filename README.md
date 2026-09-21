@@ -84,13 +84,10 @@ presenting proposed optimizations as completed work.
 | Warp shuffle for hash reduction | Implemented | Per-lane accumulators are gathered with `tile.shfl()` |
 | Remove a second "master offset" indirection | Implemented | Slots directly store offsets into the owned byte arena |
 | One-, two-, and four-thread paths selected by key length | Not implemented | Every non-empty key currently pays for a four-thread tile, including keys shorter than 16 bytes |
-| Warp-cooperative probing | Not implemented | Lane 0 controls metadata loads, CAS operations, and probe progress |
-| Shared-memory key/offset staging | Not implemented | There is no block-level reuse cache and no shared-memory capacity cost |
 | Double-buffered tile loading | Not implemented | Copy, hash, and probe phases are not software-pipelined across keys |
 | Quotient/remainder or double-hash probe stepping | Not implemented | Overflow uses simple linear probing |
 | Input pre-sort for coalescing | Not implemented | Tiles consume keys in caller-supplied order |
 | Compact fingerprints before full comparison | Not implemented | Occupied candidates require a length check and potentially a full byte comparison |
-| Replace `tile.any()` with ballot/`ffs` logic | Not implemented | Comparison uses the Cooperative Groups vote; an alternative needs SASS and benchmark evidence |
 | Dynamic resize/rehash | Not implemented | Both tables and the key arena have fixed capacities |
 
 This is **three-choice hashing with overflow**, not cuckoo hashing. A cuckoo
@@ -100,18 +97,6 @@ for testing the remaining ideas, not evidence that every idea in the research
 notes is already useful.
 
 ## System architecture
-
-```mermaid
-flowchart TD
-    H["Host batch<br/>bytes + offsets + lengths + values"] --> R["Reserve kernel<br/>allocate one arena range"]
-    R --> I["Insert kernel<br/>4-thread tile per key"]
-    I --> P["Primary table<br/>3 candidate slots"]
-    I --> O["Overflow table<br/>linear probing"]
-    Q["Query batch"] --> L["3 hashes + exact comparison"]
-    P --> L
-    O --> L
-    L --> V["value[] + found[]"]
-```
 
 The map separates key storage from slot metadata:
 
@@ -421,17 +406,6 @@ and scans at most the complete overflow capacity. Failed placement increments a
 device counter; the host treats any non-zero count as an error instead of
 silently dropping keys. Reserved arena space from a failed insertion is not
 rolled back.
-
-### Publication contract
-
-The offset CAS is followed by non-atomic length and value stores. This is valid
-under the current contract because insert, lookup, and delete kernels do not
-overlap: the host orders them in one stream and synchronizes while checking each
-launch. A concurrent-reader or multi-stream design would require an explicit
-publication state or a release/acquire protocol.
-
-Duplicate keys are not detected and update semantics are not defined. Insert
-batches must currently contain unique keys.
 
 ## Lookup and collision correctness
 
