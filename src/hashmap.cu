@@ -178,23 +178,23 @@ __global__ void insert_kernel(HashmapEngine *engine,
                               uint32_t key_count,
                               uint32_t total_bytes)
 {
-    ///////EMPTY OR NOT DIVISIBLE BY 4 then RETURN
     if ((blockDim.x % 4u) != 0u || engine->batch_base == HASHMAP_EMPTY_SLOT)
         return;
 
     const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
-    const uint64_t global_thread =(uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     const uint64_t first_key = global_thread / 4u;
-    const uint64_t key_stride =((uint64_t)gridDim.x * blockDim.x) / 4u;
+    const uint64_t key_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
 
-    ///////GRID STRIDE LOOP : Thread requirement supersedes the available total threads
-    for (uint64_t key_index64 = first_key; key_index64 < key_count;key_index64 += key_stride)
+    for (uint64_t key_index64 = first_key; key_index64 < key_count;
+         key_index64 += key_stride)
     {
         const uint32_t key_index = (uint32_t)key_index64;
         const uint32_t start = offsets[key_index];
         const uint32_t length = lengths[key_index];
 
-        /////////EXTRA PRECAUTION TO PREVENT ILLEGEAL MEMORY ACCCESS
         if (!range_is_valid(start, length, total_bytes))
         {
             if (tile.thread_rank() == 0u)
@@ -202,33 +202,15 @@ __global__ void insert_kernel(HashmapEngine *engine,
             continue;
         }
 
-        ////////// COPY TO MASTER_BYTES FROM BYTES
         const uint32_t stored_offset = engine->batch_base + start;
-        uint32_t num_words = length / 4;
+        for (uint32_t i = tile.thread_rank(); i < length; i += tile.size())
+            engine->master_bytes[stored_offset + i] = bytes[start + i];
 
-        for (uint32_t word = tile.thread_rank();word < num_words;word += tile.size())
-        {
-            uint32_t src_offset = start + word * 4;
-            uint32_t dst_offset = stored_offset + word * 4;
-
-            *reinterpret_cast<uint32_t *>(engine->master_bytes + dst_offset) = *reinterpret_cast<const uint32_t *>(bytes + src_offset);
-        }
-
-        uint32_t remaining = length % 4;
-
-        for (uint32_t i = tile.thread_rank();i < remaining;i += tile.size())
-        {
-        engine->master_bytes[stored_offset + num_words * 4 + i] =
-        bytes[start + num_words * 4 + i];
-        }
-
-        ////////////USING XXHASH32 to generate 3 hashes
         uint32_t hash1 = 0u;
         uint32_t hash2 = 0u;
         uint32_t hash3 = 0u;
         hash3_xxh32(bytes, start, length, &hash1, &hash2, &hash3);
 
-        //////
         if (tile.thread_rank() == 0u)
         {
             const uint32_t slots[3] = {
@@ -251,7 +233,8 @@ __global__ void insert_kernel(HashmapEngine *engine,
                     overflow_start(hash1, hash2, hash3, engine->overflow_capacity);
                 for (uint32_t probe = 0u; probe < engine->overflow_capacity; ++probe)
                 {
-                    const uint32_t slot = (first_overflow_slot + probe) % engine->overflow_capacity;
+                    const uint32_t slot =
+                        (first_overflow_slot + probe) % engine->overflow_capacity;
                     if (claim_slot(engine->overflow_offsets, engine->overflow_lengths,
                                    engine->overflow_values, slot, stored_offset, length,
                                    input_values[key_index]))
@@ -281,11 +264,14 @@ __global__ void lookup_kernel(const HashmapEngine *engine,
         return;
 
     const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
-    const uint64_t global_thread = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     const uint64_t first_query = global_thread / 4u;
-    const uint64_t query_stride =((uint64_t)gridDim.x * blockDim.x) / 4u;
+    const uint64_t query_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
 
-    for (uint64_t query_index64 = first_query; query_index64 < query_count;query_index64 += query_stride)
+    for (uint64_t query_index64 = first_query; query_index64 < query_count;
+         query_index64 += query_stride)
     {
         const uint32_t query_index = (uint32_t)query_index64;
         const uint32_t start = query_offsets[query_index];
@@ -370,11 +356,14 @@ __global__ void delete_kernel(HashmapEngine *engine,
         return;
 
     const Tile tile = cg::tiled_partition<4>(cg::this_thread_block());
-    const uint64_t global_thread = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t global_thread =
+        (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     const uint64_t first_query = global_thread / 4u;
-    const uint64_t query_stride = ((uint64_t)gridDim.x * blockDim.x) / 4u;
+    const uint64_t query_stride =
+        ((uint64_t)gridDim.x * blockDim.x) / 4u;
 
-    for (uint64_t query_index64 = first_query; query_index64 < query_count;query_index64 += query_stride)
+    for (uint64_t query_index64 = first_query; query_index64 < query_count;
+         query_index64 += query_stride)
     {
         const uint32_t query_index = (uint32_t)query_index64;
         const uint32_t start = query_offsets[query_index];

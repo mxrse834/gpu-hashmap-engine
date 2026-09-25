@@ -11,11 +11,7 @@ INCLUDE_DIR := include
 SOURCES := main.cu src/hashmap.cu src/hash.cu
 OBJECTS := $(BUILD_DIR)/main.o $(BUILD_DIR)/hashmap.o $(BUILD_DIR)/hash.o
 
-# GCC's -Wpedantic diagnoses #line directives emitted by nvcc and used inside
-# CUDA's Cooperative Groups headers, drowning project diagnostics in warnings.
-# Keep the useful host warnings without applying that incompatible policy flag.
-COMMON_FLAGS := -std=c++17 -arch=$(CUDA_ARCH) -rdc=true -I$(INCLUDE_DIR) \
-	-Xcompiler=-Wall,-Wextra
+COMMON_FLAGS := -std=c++17 -arch=$(CUDA_ARCH) -rdc=true -I$(INCLUDE_DIR) -Xcompiler=-Wall,-Wextra
 
 ifeq ($(BUILD_TYPE),debug)
 OPT_FLAGS := -O0 -g -G
@@ -76,12 +72,9 @@ test: all $(HASH_TEST) $(HASHMAP_TEST) fixtures
 	./$(TARGET) test/empty_a.bin test/empty_b.bin
 
 sanitize: debug fixtures
-	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 \
-		./$(HASH_TEST)
-	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 \
-		./$(HASHMAP_TEST)
-	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 \
-		./$(TARGET) test/file_a.bin test/file_b.bin
+	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 ./$(HASH_TEST)
+	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 ./$(HASHMAP_TEST)
+	compute-sanitizer --tool memcheck --leak-check full --error-exitcode 99 ./$(TARGET) test/file_a.bin test/file_b.bin
 
 profile: all fixtures
 	ncu --set full ./$(TARGET) test/file_a.bin test/file_b.bin

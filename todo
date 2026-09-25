@@ -1,0 +1,6 @@
+1) make a measure for the hashmap to be used as a hashset like for the application of simple copying(upload_bath just appends 0s)
+2) fix the race conditions for conceurrent lookup insert and eeltes by creating mid states (ABA , version based validation pick a 128 byte sized setup)
+3) make it persistant the hashmap
+4) making it resizabale
+5) double buffering loads in shared memeory 
+5) benchmark with ncu an dprofile the kernel along witht some plots and benches in py

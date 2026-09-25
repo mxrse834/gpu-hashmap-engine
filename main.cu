@@ -1,10 +1,9 @@
-#define _FILE_OFFSET_BITS 64
-
 #include "cuda_check.cuh"
 #include "hashmap.cuh"
 
 #include <cuda_runtime.h>
-
+#include <sys/stat.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,9 +11,9 @@
 #include <string.h>
 #include <sys/types.h>
 
+#define _FILE_OFFSET_BITS 64
 #define FILE_CHUNK_BYTES 16u
 #define FILE_INDEX_BYTES 4u
-#define FILE_KEY_BYTES (FILE_INDEX_BYTES + FILE_CHUNK_BYTES)
 
 typedef struct
 {
@@ -56,7 +55,6 @@ static void free_file(FileBuffer *file)
 static int read_file(const char *path, FileBuffer *result)
 {
     FILE *file;
-    off_t end;
     size_t bytes_read;
 
     memset(result, 0, sizeof(*result));
@@ -64,35 +62,27 @@ static int read_file(const char *path, FileBuffer *result)
     if (file == NULL)
     {
         fprintf(stderr, "error: cannot open %s: %s\n", path, strerror(errno));
-        return 0;
+        return -1;
+    }
+    int fd = fileno(file);
+    struct stat s;
+    if(fstat(fd,&s)==0)
+    {
+        result->size=(size_t)s.st_size;
+    }
+    else
+    {
+        fprintf(stderr,"error: %s",strerror(errno));
+        fclose(file);
+        return -1;
     }
 
-    if (fseeko(file, 0, SEEK_END) != 0 || (end = ftello(file)) < 0)
-    {
-        fprintf(stderr, "error: cannot determine file size: %s\n", path);
-        fclose(file);
-        return 0;
-    }
-    if ((uint64_t)end > (uint64_t)SIZE_MAX)
-    {
-        fprintf(stderr, "error: file is too large for this host: %s\n", path);
-        fclose(file);
-        return 0;
-    }
-    if (fseeko(file, 0, SEEK_SET) != 0)
-    {
-        fprintf(stderr, "error: cannot rewind file: %s\n", path);
-        fclose(file);
-        return 0;
-    }
-
-    result->size = (size_t)end;
     if (result->size != 0u)
     {
         result->data = (uint8_t *)malloc(result->size);
         if (result->data == NULL)
         {
-            fprintf(stderr, "error: host allocation failed for %s\n", path);
+            fprintf(stderr, "error: host allocation failed for %s with error %s\n", path,strerror(errno));
             fclose(file);
             return 0;
         }
@@ -109,11 +99,11 @@ static int read_file(const char *path, FileBuffer *result)
 
     if (fclose(file) != 0)
     {
-        fprintf(stderr, "error: failed to close %s\n", path);
+        fprintf(stderr, "error: failed to close %s with error\n", path,strerror(errno));
         free_file(result);
-        return 0;
+        return -1;
     }
-    return 1;
+    return 0;
 }
 
 static void free_batch(Batch *batch)
@@ -125,65 +115,38 @@ static void free_batch(Batch *batch)
     memset(batch, 0, sizeof(*batch));
 }
 
-static int make_positioned_chunk_batch(const FileBuffer *file, Batch *batch)
+static int gpu_batch_gen(const FileBuffer *file, DeviceBatch *device)
 {
-    uint64_t chunk_count64;
-    uint64_t encoded_bytes64;
-    uint32_t chunk;
+    uint64_t chunk_count32;
 
-    memset(batch, 0, sizeof(*batch));
-    chunk_count64 = (uint64_t)(file->size / FILE_CHUNK_BYTES);
+    chunk_count32 = (uint32_t)(file->size / FILE_CHUNK_BYTES);
     if ((file->size % FILE_CHUNK_BYTES) != 0u)
-        ++chunk_count64;
+        ++chunk_count32;
 
-    if (chunk_count64 > UINT32_MAX ||
-        chunk_count64 > SIZE_MAX / sizeof(uint32_t))
+    if (chunk_count32 > (UINT32_MAX-2) || chunk_count64 > SIZE_MAX / sizeof(uint32_t))
     {
         fprintf(stderr, "error: file exceeds the engine's 32-bit indexing limit\n");
-        return 0;
+        return -1;
     }
-
-    encoded_bytes64 = chunk_count64 * FILE_KEY_BYTES;
-    if (encoded_bytes64 >= HASHMAP_TOMBSTONE_SLOT)
+    CUDA_CHECK(cudaMalloc((void **)&device->bytes, file->size));
+    CUDA_CHECK(cudaMalloc((void **)&device->offsets,chunk_count32 * sizeof(uint32_t));
+    CUDA_CHECK(cudaMalloc((void **)&device->lengths,(size_t)host->key_count * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpy(device->bytes, host->bytes, host->total_bytes,cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(device->offsets, host->offsets,(size_t)host->key_count * sizeof(uint32_t),cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(device->lengths, host->lengths,(size_t)host->key_count * sizeof(uint32_t),cudaMemcpyHostToDevice));
+    if (upload_values)
     {
-        fprintf(stderr, "error: encoded keys exceed the byte-arena limit\n");
-        return 0;
+        CUDA_CHECK(cudaMalloc((void **)&device->values,
+                              (size_t)host->key_count * sizeof(uint32_t)));
+        CUDA_CHECK(cudaMemcpy(device->values, host->values,
+                              (size_t)host->key_count * sizeof(uint32_t),
+                              cudaMemcpyHostToDevice));
     }
-
-    batch->key_count = (uint32_t)chunk_count64;
-    batch->total_bytes = (uint32_t)encoded_bytes64;
-    batch->bytes = (uint8_t *)calloc((size_t)batch->total_bytes, 1u);
-    batch->offsets = (uint32_t *)malloc((size_t)batch->key_count * sizeof(uint32_t));
-    batch->lengths = (uint32_t *)malloc((size_t)batch->key_count * sizeof(uint32_t));
-    batch->values = (uint32_t *)malloc((size_t)batch->key_count * sizeof(uint32_t));
-
-    if (batch->bytes == NULL || batch->offsets == NULL || batch->lengths == NULL ||
-        batch->values == NULL)
+    else
     {
-        fprintf(stderr, "error: host allocation failed while encoding file chunks\n");
-        free_batch(batch);
-        return 0;
+        memset(device->values, 0, sizeof(*device->values));
     }
-
-    for (chunk = 0u; chunk < batch->key_count; ++chunk)
-    {
-        uint32_t destination = chunk * FILE_KEY_BYTES;
-        size_t source = (size_t)chunk * FILE_CHUNK_BYTES;
-        size_t remaining = file->size - source;
-        size_t copy_size = remaining < FILE_CHUNK_BYTES ? remaining : FILE_CHUNK_BYTES;
-
-        batch->offsets[chunk] = destination;
-        batch->lengths[chunk] = FILE_KEY_BYTES;
-        batch->values[chunk] = chunk;
-
-        batch->bytes[destination + 0u] = (uint8_t)chunk;
-        batch->bytes[destination + 1u] = (uint8_t)(chunk >> 8u);
-        batch->bytes[destination + 2u] = (uint8_t)(chunk >> 16u);
-        batch->bytes[destination + 3u] = (uint8_t)(chunk >> 24u);
-        memcpy(batch->bytes + destination + FILE_INDEX_BYTES,
-               file->data + source, copy_size);
-    }
-    return 1;
+    return 0;
 }
 
 static void free_device_batch(DeviceBatch *batch)
@@ -201,22 +164,12 @@ static void free_device_batch(DeviceBatch *batch)
 
 static void upload_batch(const Batch *host, DeviceBatch *device, int upload_values)
 {
-    memset(device, 0, sizeof(*device));
-
     CUDA_CHECK(cudaMalloc((void **)&device->bytes, host->total_bytes));
-    CUDA_CHECK(cudaMalloc((void **)&device->offsets,
-                          (size_t)host->key_count * sizeof(uint32_t)));
-    CUDA_CHECK(cudaMalloc((void **)&device->lengths,
-                          (size_t)host->key_count * sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemcpy(device->bytes, host->bytes, host->total_bytes,
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(device->offsets, host->offsets,
-                          (size_t)host->key_count * sizeof(uint32_t),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(device->lengths, host->lengths,
-                          (size_t)host->key_count * sizeof(uint32_t),
-                          cudaMemcpyHostToDevice));
-
+    CUDA_CHECK(cudaMalloc((void **)&device->offsets,(size_t)host->key_count * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMalloc((void **)&device->lengths,(size_t)host->key_count * sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemcpy(device->bytes, host->bytes, host->total_bytes,cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(device->offsets, host->offsets,(size_t)host->key_count * sizeof(uint32_t),cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(device->lengths, host->lengths,(size_t)host->key_count * sizeof(uint32_t),cudaMemcpyHostToDevice));
     if (upload_values)
     {
         CUDA_CHECK(cudaMalloc((void **)&device->values,
@@ -224,6 +177,10 @@ static void upload_batch(const Batch *host, DeviceBatch *device, int upload_valu
         CUDA_CHECK(cudaMemcpy(device->values, host->values,
                               (size_t)host->key_count * sizeof(uint32_t),
                               cudaMemcpyHostToDevice));
+    }
+    else
+    {
+        memset(device->values, 0, sizeof(*device->values));
     }
 }
 
